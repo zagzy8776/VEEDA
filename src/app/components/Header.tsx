@@ -5,17 +5,16 @@ const C = { teal: '#2DD4A4', amber: '#EF9F27', text: '#E2F4F0', muted: '#5A7A72'
 interface HeaderProps {
   wellnessScore: number | null;
   status: 'online' | 'checking' | 'failed';
-  riskLevel: string;
+  riskLevel: string | null;
 }
 
 export function Header({ wellnessScore, status, riskLevel }: HeaderProps) {
   const s = {
-    online:   { bg: 'rgba(45,212,164,0.12)',  border: 'rgba(45,212,164,0.25)',  text: C.teal,    dot: C.teal,    label: 'VEDA active' },
-    checking: { bg: 'rgba(239,159,39,0.12)',  border: 'rgba(239,159,39,0.25)',  text: C.amber,   dot: C.amber,   label: 'Starting...' },
-    failed:   { bg: 'rgba(226,75,74,0.12)',   border: 'rgba(226,75,74,0.25)',   text: '#E24B4A', dot: '#E24B4A', label: 'Offline' },
+    online:   { bg: 'rgba(45,212,164,0.12)', border: 'rgba(45,212,164,0.25)', text: C.teal,    dot: C.teal,    label: 'VEDA active' },
+    checking: { bg: 'rgba(239,159,39,0.12)', border: 'rgba(239,159,39,0.25)', text: C.amber,   dot: C.amber,   label: 'Starting...' },
+    failed:   { bg: 'rgba(226,75,74,0.12)',  border: 'rgba(226,75,74,0.25)',  text: '#E24B4A', dot: '#E24B4A', label: 'Offline'     },
   }[status];
 
-  const score = wellnessScore ?? null;
   const riskColor = riskLevel === 'Urgent' ? '#E24B4A' : riskLevel === 'Watch' ? C.amber : C.teal;
 
   return (
@@ -43,12 +42,14 @@ export function Header({ wellnessScore, status, riskLevel }: HeaderProps) {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0, animation: status === 'online' ? 'vedaPulse 2s ease-in-out infinite' : 'none' }} />
           {s.label}
         </div>
-        <div style={{ padding: '6px 12px', borderRadius: 14, background: `${riskColor}18`, border: `0.5px solid ${riskColor}40`, fontSize: 11, fontWeight: 700, color: riskColor }}>
-          {score !== null ? `${score} · ` : ''}{riskLevel}
-        </div>
+        {riskLevel && (
+          <div style={{ padding: '6px 12px', borderRadius: 14, background: `${riskColor}18`, border: `0.5px solid ${riskColor}40`, fontSize: 11, fontWeight: 700, color: riskColor }}>
+            {wellnessScore !== null ? `${wellnessScore} · ` : ''}{riskLevel}
+          </div>
+        )}
       </div>
 
-      <style>{`@keyframes vedaPulse { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
+      <style>{`@keyframes vedaPulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
     </header>
   );
 }

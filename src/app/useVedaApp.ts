@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from './api';
+import { useStepCounter } from './sensors';
 
 export interface Vitals {
   heartRate: number | null;
@@ -62,16 +63,16 @@ export interface Profile {
   tempUnit: 'C' | 'F';
 }
 
-function loadProfile(): Profile {
-  try {
-    const s = localStorage.getItem('veda_profile');
-    if (s) return { ...defaultProfile(), ...JSON.parse(s) };
-  } catch {}
-  return defaultProfile();
+export function isFirstLaunch(): boolean {
+  return !localStorage.getItem('veda_profile');
 }
 
-function defaultProfile(): Profile {
-  return { name: 'Zagzy', age: 28, weight: 75, height: 178, sex: 'male', waterTarget: 2500, stepGoal: 10000, tempUnit: 'C' };
+function loadProfile(): Profile | null {
+  try {
+    const s = localStorage.getItem('veda_profile');
+    if (s) return JSON.parse(s);
+  } catch {}
+  return null;
 }
 
 export function useVedaApp() {
@@ -82,19 +83,32 @@ export function useVedaApp() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [history, setHistory] = useState<BiometricEvent[]>([]);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'failed'>('checking');
-  const [profile, setProfileState] = useState<Profile>(loadProfile);
-  const [steps, setSteps] = useState(0);
+  const [profile, setProfileState] = useState<Profile | null>(loadProfile);
+  const [steps, setStepsState] = useState(() => {
+    const d = localStorage.getItem('veda_steps_date');
+    if (d === new Date().toDateString()) return parseInt(localStorage.getItem('veda_steps') || '0', 10);
+    return 0;
+  });
   const [sleepHours, setSleepHours] = useState<number | null>(null);
   const [hydrationMl, setHydrationMl] = useState(() => {
     const d = localStorage.getItem('veda_hydration_date');
-    const today = new Date().toDateString();
-    if (d === today) return parseInt(localStorage.getItem('veda_hydration_ml') || '0', 10);
+    if (d === new Date().toDateString()) return parseInt(localStorage.getItem('veda_hydration_ml') || '0', 10);
     return 0;
   });
 
   const telemetryRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const locationRef = useRef<Location>({ lat: null, lng: null, accuracy: null });
 
-  // Check backend health
+  // Step counter — always running
+  const { start: startSteps } = useStepCounter(useCallback((total: number) => {
+    setStepsState(total);
+    localStorage.setItem('veda_steps', String(total));
+    localStorage.setItem('veda_steps_date', new Date().toDateString());
+  }, []));
+
+  useEffect(() => { startSteps(); }, [startSteps]);
+
+  // Backend health
   useEffect(() => {
     apiFetch<{ status: string }>('/api/health').then(d => {
       setBackendStatus(d?.status === 'online' ? 'online' : 'failed');
@@ -104,22 +118,25 @@ export function useVedaApp() {
   // GPS
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(pos => {
+    const success = (pos: GeolocationPosition) => {
       const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) };
       setLocation(loc);
-      fetchWeather(loc.lat, loc.lng);
+      locationRef.current = loc;
       setEnv(e => ({ ...e, gps: `±${Math.round(pos.coords.accuracy)}m` }));
-    }, () => {
-      // fallback Lagos
+      fetchWeatherCoords(loc.lat, loc.lng);
+    };
+    const fail = () => {
       const loc = { lat: 6.5244, lng: 3.3792, accuracy: null };
       setLocation(loc);
-      fetchWeather(loc.lat, loc.lng);
+      locationRef.current = loc;
       setEnv(e => ({ ...e, gps: 'Approx' }));
-    }, { enableHighAccuracy: true, timeout: 10000 });
+      fetchWeatherCoords(loc.lat, loc.lng);
+    };
+    navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000 });
+    navigator.geolocation.watchPosition(success, fail, { enableHighAccuracy: true, maximumAge: 30000 });
   }, []);
 
-  // Fetch weather from backend
-  const fetchWeather = useCallback(async (lat: number, lng: number) => {
+  async function fetchWeatherCoords(lat: number, lng: number) {
     const d = await apiFetch<any>(`/api/map/context?lat=${lat}&lng=${lng}`);
     if (!d?.weather || d.weather.status !== 'available') return;
     const w = d.weather;
@@ -127,11 +144,10 @@ export function useVedaApp() {
     const precip = Number(w.precipitation || 0);
     const wind = Number(w.windSpeed || 0);
     const weather = precip >= 0.2 ? 'Rain' : temp !== null && temp >= 32 ? 'Hot' : temp !== null && temp <= 13 ? 'Cold' : wind >= 30 ? 'Windy' : 'Clear';
-    const air = 'Good';
-    setEnv({ temp: temp !== null ? `${temp}°C` : '--', air, weather, gps: location.accuracy ? `±${location.accuracy}m` : 'Active', outsideTemp: temp });
-  }, [location.accuracy]);
+    setEnv(e => ({ ...e, temp: temp !== null ? `${temp}°C` : '--', air: 'Good', weather, outsideTemp: temp }));
+  }
 
-  // Send telemetry and get analysis
+  // Telemetry
   const sendTelemetry = useCallback(async () => {
     if (backendStatus !== 'online') return;
     const d = await apiFetch<Analysis>('/api/analyze', {
@@ -141,7 +157,6 @@ export function useVedaApp() {
     if (d) setAnalysis(d);
   }, [vitals, env, backendStatus]);
 
-  // Telemetry loop
   useEffect(() => {
     if (backendStatus !== 'online') return;
     sendTelemetry();
@@ -149,7 +164,7 @@ export function useVedaApp() {
     return () => { if (telemetryRef.current) clearInterval(telemetryRef.current); };
   }, [backendStatus, sendTelemetry]);
 
-  // Load history from Neon
+  // History from Neon
   const fetchHistory = useCallback(async () => {
     const d = await apiFetch<BiometricEvent[]>('/api/wellness-history?days=7');
     if (d) setHistory(d);
@@ -157,7 +172,7 @@ export function useVedaApp() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // Save biometric to Neon + local
+  // Save biometric
   const saveBiometric = useCallback(async (type: string, value: number, unit: string, metadata: Record<string, unknown> = {}) => {
     await apiFetch('/api/biometric-event', {
       method: 'POST',
@@ -166,29 +181,26 @@ export function useVedaApp() {
     fetchHistory();
   }, [fetchHistory]);
 
-  // Set a vital reading
   const setVital = useCallback((key: keyof Vitals, value: number, source: string) => {
     setVitals(v => ({ ...v, [key]: value }));
     setSources(s => ({ ...s, [key]: source }));
   }, []);
 
-  // Log water
   const logWater = useCallback((ml: number) => {
     setHydrationMl(prev => {
       const next = prev + ml;
       localStorage.setItem('veda_hydration_ml', String(next));
       localStorage.setItem('veda_hydration_date', new Date().toDateString());
-      const pct = Math.min(100, Math.round((next / (profile.waterTarget || 2500)) * 100));
-      setVital('hydration', pct, 'log');
+      const wt = profile?.waterTarget || 2500;
+      setVital('hydration', Math.min(100, Math.round((next / wt) * 100)), 'Water log');
       saveBiometric('hydration', next / 1000, 'litres');
       return next;
     });
-  }, [profile.waterTarget, setVital, saveBiometric]);
+  }, [profile?.waterTarget, setVital, saveBiometric]);
 
-  // Wellness score calculated from real vitals
+  // Wellness score from real vitals only
   const wellnessScore = (() => {
-    const measured = Object.values(vitals).filter(v => v !== null);
-    if (measured.length === 0) return null;
+    if (!Object.values(vitals).some(v => v !== null)) return null;
     let score = 70;
     if (vitals.heartRate !== null) score += vitals.heartRate < 50 || vitals.heartRate > 120 ? -18 : vitals.heartRate > 100 ? -8 : 8;
     if (vitals.oxygen !== null) score += Math.min(10, Math.max(-25, (vitals.oxygen - 94) * 3));
@@ -198,10 +210,12 @@ export function useVedaApp() {
     return Math.max(0, Math.min(100, Math.round(score)));
   })();
 
-  // Save profile
   const saveProfile = useCallback((p: Partial<Profile>) => {
     setProfileState(prev => {
-      const next = { ...prev, ...p };
+      const base: Profile = prev ?? { name: '', age: 25, weight: 70, height: 170, sex: 'male', waterTarget: 2500, stepGoal: 10000, tempUnit: 'C' };
+      const next = { ...base, ...p };
+      // Recalculate water target from weight if weight changed
+      if (p.weight && p.weight > 20) next.waterTarget = Math.round(p.weight * 35);
       localStorage.setItem('veda_profile', JSON.stringify(next));
       return next;
     });
@@ -209,7 +223,7 @@ export function useVedaApp() {
 
   return {
     vitals, sources, env, location, analysis, history, backendStatus,
-    wellnessScore, profile, steps, setSteps, sleepHours, setSleepHours,
+    wellnessScore, profile, steps, setStepsState, sleepHours, setSleepHours,
     hydrationMl, logWater, setVital, saveBiometric, fetchHistory, saveProfile, sendTelemetry,
   };
 }
