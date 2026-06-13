@@ -196,7 +196,8 @@ export function MapPage({ location }: { location: Location }) {
     }, 200);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-    map.on('dragstart', () => { userHasPanned.current = true; });
+    // Mark user as in control on ANY manual interaction — drag OR zoom
+    map.on('movestart', () => { userHasPanned.current = true; });
 
     updateUser(L, map, lat, lng, accuracy);
     mapObj.current = map;
@@ -221,12 +222,18 @@ export function MapPage({ location }: { location: Location }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasInitiallycentered = useRef(false);
+
   // ── GPS update ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!location.lat || !mapObj.current) return;
     const L = (window as any).L; if (!L) return;
     updateUser(L, mapObj.current, location.lat, location.lng!, location.accuracy);
-    if (!userHasPanned.current) mapObj.current.setView([location.lat, location.lng], 15, { animate: true });
+    // Only pan/zoom on the very first GPS fix, never interrupt user after that
+    if (!hasInitiallycentered.current && !userHasPanned.current) {
+      hasInitiallycentered.current = true;
+      mapObj.current.setView([location.lat, location.lng], 15, { animate: true });
+    }
   }, [location.lat, location.lng, location.accuracy]);
 
   // ── Fetch nearby (backend, API key protected) ──────────────────────────────
@@ -306,6 +313,7 @@ export function MapPage({ location }: { location: Location }) {
   function recenter() {
     if (!mapObj.current || !location.lat) return;
     userHasPanned.current = false;
+    hasInitiallycentered.current = false;
     mapObj.current.setView([location.lat, location.lng], 16, { animate: true });
   }
 

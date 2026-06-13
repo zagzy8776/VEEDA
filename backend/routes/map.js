@@ -87,11 +87,12 @@ router.get('/nearby', async (req, res) => {
     node[amenity~"hospital|pharmacy|clinic|doctors|dentist|veterinary"](${bbox});
     way[amenity~"hospital|pharmacy|clinic|doctors|dentist"](${bbox});
     node[amenity~"restaurant|cafe|fast_food|bar|pub|food_court"](${bbox});
+    way[amenity~"restaurant|cafe|fast_food"](${bbox});
     node[shop~"supermarket|convenience|grocery|mall|department_store|bakery|butcher|greengrocer"](${bbox});
     node[amenity~"school|university|college|bank|atm|fuel|parking|police|fire_station"](${bbox});
     node[tourism~"hotel|hostel|motel|guest_house"](${bbox});
     node[amenity="place_of_worship"](${bbox});
-  );out center 60;`;
+  );out center 100;`;
 
   try {
     const r = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);

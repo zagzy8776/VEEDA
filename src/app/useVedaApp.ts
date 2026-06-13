@@ -122,14 +122,14 @@ export function useVedaApp() {
       const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) };
       setLocation(loc);
       locationRef.current = loc;
-      setEnv(e => ({ ...e, gps: `±${Math.round(pos.coords.accuracy)}m` }));
+      setEnv(e => ({ ...e, gps: 'Active' }));
       fetchWeatherCoords(loc.lat, loc.lng);
     };
     const fail = () => {
       const loc = { lat: 6.5244, lng: 3.3792, accuracy: null };
       setLocation(loc);
       locationRef.current = loc;
-      setEnv(e => ({ ...e, gps: 'Approx' }));
+      setEnv(e => ({ ...e, gps: 'Unknown' }));
       fetchWeatherCoords(loc.lat, loc.lng);
     };
     navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000 });
@@ -141,10 +141,40 @@ export function useVedaApp() {
     if (!d?.weather || d.weather.status !== 'available') return;
     const w = d.weather;
     const temp = w.temperature !== null ? Math.round(w.temperature) : null;
+    const feelsLike = w.apparentTemperature !== null ? Math.round(w.apparentTemperature) : null;
     const precip = Number(w.precipitation || 0);
     const wind = Number(w.windSpeed || 0);
-    const weather = precip >= 0.2 ? 'Rain' : temp !== null && temp >= 32 ? 'Hot' : temp !== null && temp <= 13 ? 'Cold' : wind >= 30 ? 'Windy' : 'Clear';
-    setEnv(e => ({ ...e, temp: temp !== null ? `${temp}°C` : '--', air: 'Good', weather, outsideTemp: temp }));
+    const humidity = Number(w.humidity || 0);
+
+    // Use actual description from Geoapify if available, else derive from data
+    let weatherLabel = w.description || '';
+    if (!weatherLabel) {
+      if (precip >= 5) weatherLabel = 'Heavy Rain';
+      else if (precip >= 0.5) weatherLabel = 'Rain';
+      else if (precip > 0) weatherLabel = 'Light Rain';
+      else if (wind >= 50) weatherLabel = 'Storm';
+      else if (wind >= 30) weatherLabel = 'Windy';
+      else if (temp !== null && temp >= 38) weatherLabel = 'Very Hot';
+      else if (temp !== null && temp >= 32) weatherLabel = 'Hot';
+      else if (temp !== null && temp <= 5) weatherLabel = 'Very Cold';
+      else if (temp !== null && temp <= 13) weatherLabel = 'Cold';
+      else if (humidity >= 85) weatherLabel = 'Humid';
+      else weatherLabel = 'Clear';
+    }
+
+    // Air quality from humidity as rough proxy when AQ API unavailable
+    let airLabel = 'Good';
+    if (humidity >= 90) airLabel = 'Humid';
+    else if (wind >= 40) airLabel = 'Dusty';
+    else if (precip > 2) airLabel = 'Fresh';
+
+    setEnv(e => ({
+      ...e,
+      temp: temp !== null ? `${temp}°C${feelsLike !== null && feelsLike !== temp ? ` / ${feelsLike}°` : ''}` : '--',
+      air: airLabel,
+      weather: weatherLabel || 'Clear',
+      outsideTemp: temp,
+    }));
   }
 
   // Telemetry
