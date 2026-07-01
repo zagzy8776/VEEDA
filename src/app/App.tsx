@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, Component, type ReactNode } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
 import { BottomNav, type Route } from './components/BottomNav';
@@ -13,6 +13,22 @@ const HistoryPage = lazy(() => import('./components/HistoryPage').then(m => ({ d
 const ProfilePage = lazy(() => import('./components/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const ChatPanel = lazy(() => import('./components/ChatPanel').then(m => ({ default: m.ChatPanel })));
 const ClinicianDashboard = lazy(() => import('./components/ClinicianDashboard').then(m => ({ default: m.ClinicianDashboard })));
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+    return this.props.children;
+  }
+}
 
 function LoadingPane() {
   return (
@@ -72,6 +88,7 @@ export default function App() {
         />
 
         <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <ErrorBoundary>
           <Suspense fallback={<LoadingPane />}>
             <AnimatePresence mode="wait" initial={false}>
               {route === 'home' && (
@@ -106,6 +123,7 @@ export default function App() {
               )}
             </AnimatePresence>
           </Suspense>
+          </ErrorBoundary>
         </main>
 
         <BottomNav route={route} onNavigate={setRoute} showClinical={showClinical} />

@@ -977,8 +977,9 @@ ul, ol { list-style: none; }
   position: fixed;
   top: 0;
   bottom: 0;
-  left: 50%;
-  transform: translate(-50%, 100%);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   width: 100%;
   max-width: 390px;
   display: flex;
@@ -990,9 +991,10 @@ ul, ol { list-style: none; }
   z-index: 600;
   transition: transform 260ms ease, opacity 220ms ease;
   overflow: hidden;
+  transform: translateY(100%);
 }
 .chat-panel.open {
-  transform: translate(-50%, 0);
+  transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
 }
