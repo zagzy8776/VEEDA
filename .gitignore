@@ -1,0 +1,8 @@
+node_modules
+dist
+.idea
+VEEDA
+.env
+.env.local
+.env.production
+backend/.env

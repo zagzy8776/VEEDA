@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>VEDA — Wellness Intelligence</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.6.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQY8bM0P5fUYC08bKPiGYo4W1rCMLQk=" crossorigin="" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Loading Bar -->
+    <div id="loading-bar" class="loading-bar"><div class="loading-bar-inner"></div></div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Permissions Onboarding Overlay -->
+    <div id="permissions-overlay" class="permissions-overlay" style="display:none;">
+      <div class="permissions-card">
+        <h2>VEDA works better with access to your device</h2>
+        <p class="permissions-subtitle">Each permission is optional. You can skip any or all.</p>
+        <div class="permissions-list">
+          <div class="perm-row"><div class="perm-info"><i class="ti-camera"></i><div><strong>Camera</strong><small>Heart rate measurement</small></div></div><button id="perm-camera" class="perm-btn" onclick="window.vedaApp.allowPermission('camera')">Allow</button></div>
+          <div class="perm-row"><div class="perm-info"><i class="ti-microphone"></i><div><strong>Microphone</strong><small>Breathing analysis</small></div></div><button id="perm-microphone" class="perm-btn" onclick="window.vedaApp.allowPermission('microphone')">Allow</button></div>
+          <div class="perm-row"><div class="perm-info"><i class="ti-device-mobile"></i><div><strong>Motion sensors</strong><small>Step counting, sleep detection</small></div></div><button id="perm-motion" class="perm-btn" onclick="window.vedaApp.allowPermission('motion')">Allow</button></div>
+          <div class="perm-row"><div class="perm-info"><i class="ti-bell"></i><div><strong>Notifications</strong><small>Hydration reminders</small></div></div><button id="perm-notifications" class="perm-btn" onclick="window.vedaApp.allowPermission('notifications')">Allow</button></div>
+          <div class="perm-row"><div class="perm-info"><i class="ti-map-pin"></i><div><strong>Location</strong><small>Nearby care, weather context</small></div></div><button id="perm-location" class="perm-btn" onclick="window.vedaApp.allowPermission('location')">Allow</button></div>
+        </div>
+        <button class="btn primary" onclick="window.vedaApp.skipPermissions()" style="margin-top:16px;width:100%;">Skip all</button>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-mark"><i class="ti-heartbeat"></i></div>
+        <div class="header-title"><h1>VEDA</h1><span class="header-sub">Wellness Intelligence</span></div>
+      </div>
+      <div class="header-right">
+        <div id="status-pill" class="status-pill checking"><span class="status-dot"></span><span>Checking...</span></div>
+        <div id="risk-level" class="risk-badge">Stable</div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ===================== HOME PAGE ===================== -->
+      <section id="page-home" class="view active" role="tabpanel" aria-labelledby="tab-home" tabindex="0">
+        <div class="page-scroll">
+          <div class="greeting">
+            <div class="greeting-date" id="greeting-date"></div>
+            <div class="greeting-text">Good <span id="greeting-time">morning</span>, <span class="name" id="greeting-name">Zagzy</span></div>
+          </div>
+          <div class="guardian-ring-section">
+            <div class="guardian-ring">
+              <svg viewBox="0 0 140 140">
+                <circle class="ring-track" cx="70" cy="70" r="58" />
+                <circle id="guardian-ring-fill" class="ring-fill" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="0" />
+              </svg>
+              <div class="ring-center">
+                <div class="ring-score" id="ring-score">--</div>
+                <div class="ring-label">Wellness</div>
+              </div>
+            </div>
+          </div>
+          <div class="vitals-grid">
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-heartbeat" style="color:#E24B4A"></i><span class="vital-label">Heart rate</span></div>
+              <div class="vital-value-row"><span id="hr-value" class="vital-value">--</span><span id="hr-unit" class="vital-unit">bpm</span></div>
+              <div id="hr-source" class="vital-source">Not measured</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:55%"></div></div>
+            </div>
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-wind" style="color:#378ADD"></i><span class="vital-label">Respiratory</span></div>
+              <div class="vital-value-row"><span id="resp-value" class="vital-value">--</span><span id="resp-unit" class="vital-unit">breaths/min</span></div>
+              <div id="resp-source" class="vital-source">Not measured</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:20%"></div></div>
+            </div>
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-droplet" style="color:#2DD4A4"></i><span class="vital-label">Oxygen</span></div>
+              <div class="vital-value-row"><span id="spo2-value" class="vital-value">--</span><span id="spo2-unit" class="vital-unit">%</span></div>
+              <div id="spo2-source" class="vital-source">Needs wearable</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:97%"></div></div>
+            </div>
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-bolt" style="color:#EF9F27"></i><span class="vital-label">Stamina</span></div>
+              <div class="vital-value-row"><span id="stamina-value" class="vital-value">--</span><span id="stamina-unit" class="vital-unit">%</span></div>
+              <div id="stamina-source" class="vital-source">Needs wearable</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:78%"></div></div>
+            </div>
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-droplet" style="color:#378ADD"></i><span class="vital-label">Hydration</span></div>
+              <div class="vital-value-row"><span id="hyd-value" class="vital-value">--</span><span id="hyd-unit" class="vital-unit">%</span></div>
+              <div id="hyd-source" class="vital-source">Log water</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:72%"></div></div>
+            </div>
+            <div class="vital-card">
+              <div class="vital-top"><i class="ti-thermometer" style="color:#2DD4A4"></i><span class="vital-label">Skin temp</span></div>
+              <div class="vital-value-row"><span id="skin-value" class="vital-value">--</span><span id="skin-unit" class="vital-unit">°C</span></div>
+              <div id="skin-source" class="vital-source">Manual only</div>
+              <div class="vital-bar"><div class="vital-bar-fill" style="width:45%"></div></div>
+            </div>
+          </div>
+          <div class="env-row" id="env-row">
+            <div class="env-card"><i class="ti-temperature" style="color:#EF9F27"></i><div class="env-value" id="env-temp">28°</div><div class="env-label">Outside</div></div>
+            <div class="env-card"><i class="ti-wind" style="color:#378ADD"></i><div class="env-value" id="env-aqi">Good</div><div class="env-label">Air</div></div>
+            <div class="env-card"><i class="ti-cloud" style="color:#2DD4A4"></i><div class="env-value" id="env-weather">Clear</div><div class="env-label">Weather</div></div>
+            <div class="env-card"><i class="ti-map-pin" style="color:#E24B4A"></i><div class="env-value" id="env-gps">--</div><div class="env-label">GPS</div></div>
+          </div>
+          <div class="notices-section">
+            <div class="notices-label">VEDA notices</div>
+            <div id="notices-container"></div>
+          </div>
+          <div class="cta-section">
+            <button class="cta-btn" onclick="window.vedaApp.openChat()"><i class="ti-message"></i> Chat with VEDA</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- VITALS PAGE -->
+      <section id="page-vitals" class="view" role="tabpanel" aria-labelledby="tab-vitals" tabindex="0" hidden>
+        <div class="page-scroll">
+          <div class="section-header"><h2>Vitals</h2><span class="section-sub">Biometric tracking</span></div>
+          <div class="vitals-grid vitals-grid-2x3">
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#E24B4A"><i class="ti-heartbeat"></i></div><div class="vital-body"><span id="bio-hr-val" class="vital-value">--</span><span id="bio-hr-unit" class="vital-unit">bpm</span></div><div id="bio-hr-label" class="vital-label">Heart rate</div><div class="disclaimer"><i class="ti-alert-triangle"></i> Camera-based estimate. ±5 BPM accuracy. Not a medical device.</div></div>
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#378ADD"><i class="ti-wind"></i></div><div class="vital-body"><span id="bio-br-val" class="vital-value">--</span><span id="bio-br-unit" class="vital-unit">breaths/min</span></div><div id="bio-br-label" class="vital-label">Breath rate</div><div class="disclaimer"><i class="ti-alert-triangle"></i> Estimated from microphone breathing pattern.</div></div>
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#2DD4A4"><i class="ti-droplet"></i></div><div class="vital-body"><span id="bio-hyd-val" class="vital-value">--</span><span id="bio-hyd-unit" class="vital-unit">L</span></div><div id="bio-hyd-label" class="vital-label">Hydration</div><div class="vital-progress"><div id="hydration-progress-fill" class="vital-progress-fill" style="width:0%"></div></div><div class="hyd-target-info" id="hyd-target-info"></div><div class="hydration-controls"><button class="btn-sm" onclick="window.vedaApp.logWater(250)">+250ml</button><button class="btn-sm" onclick="window.vedaApp.logWater(500)">+500ml</button></div></div>
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#EF9F27"><i class="ti-moon"></i></div><div class="vital-body"><span id="bio-sleep-val" class="vital-value">--</span><span id="bio-sleep-unit" class="vital-unit">hours</span></div><div id="bio-sleep-label" class="vital-label">Sleep</div><div id="sleep-source-label" class="vital-source">Phone estimate</div><div class="sleep-controls"><button class="btn-sm" onclick="window.vedaApp.sleepNow()"><i class="ti-moon"></i> Sleep</button><button class="btn-sm" onclick="window.vedaApp.wakeNow()"><i class="ti-sun"></i> Wake</button></div></div>
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#2DD4A4"><i class="ti-footprint"></i></div><div class="vital-body"><span id="bio-steps-val" class="vital-value">0</span><span id="bio-steps-unit" class="vital-unit">steps</span></div><div id="bio-steps-label" class="vital-label">Steps</div><div class="vital-progress"><div id="steps-progress-fill" class="vital-progress-fill" style="width:0%"></div></div><div class="disclaimer"><i class="ti-alert-triangle"></i> Estimated from device motion sensor.</div></div>
+            <div class="vital-card vital-card-bio"><div class="vital-icon" style="color:#E24B4A"><i class="ti-thermometer"></i></div><div class="vital-body"><span id="bio-temp-val" class="vital-value">--</span><span id="bio-temp-unit" class="vital-unit">°C</span></div><div id="bio-temp-label" class="vital-label">Temperature</div><div id="weather-temp-ref" class="weather-temp-ref"><i class="ti-cloud"></i> Outside: <span id="weather-temp-value">--</span>°C</div><div class="temp-controls"><input type="number" id="temp-input" class="form-input" placeholder="Body temp (optional)" step="0.1" /><button class="btn-sm" onclick="window.vedaApp.toggleTempUnit()"><span id="temp-unit-label">C</span></button><button class="btn-sm" onclick="window.vedaApp.saveTemperature()">Save</button></div></div>
+          </div>
+          <div id="measurement-hub" class="measurement-hub"></div>
+          <div class="section-header"><h2>7-day trend</h2></div>
+          <div class="chart-container"><canvas id="vitals-trend-chart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- Heart Rate Measurement View -->
+      <section id="page-hr-measurement" class="view">
+        <div class="page-scroll">
+          <div class="section-header"><h2>Heart Rate</h2><span class="section-sub">Camera rPPG measurement</span></div>
+          <div id="hr-measurement-panel" class="hr-panel">
+            <p class="hr-instruction">Place your fingertip gently over the back camera. Hold still for 30 seconds.</p>
+            <video id="hr-video" autoplay playsinline muted style="display:none;"></video>
+            <canvas id="hr-canvas" width="320" height="240" style="display:none;"></canvas>
+            <div class="hr-countdown">
+              <svg viewBox="0 0 100 100" class="hr-ring"><circle cx="50" cy="50" r="45" class="hr-ring-bg"/><circle id="hr-ring-progress" cx="50" cy="50" r="45" class="hr-ring-fill"/></svg>
+              <span id="hr-time-text" class="hr-time">30s</span>
+            </div>
+            <canvas id="hr-waveform" width="300" height="80" class="hr-waveform"></canvas>
+            <div id="hr-confidence" class="hr-confidence"></div>
+          </div>
+          <div id="hr-result-view" style="display:none;">
+            <div class="hr-result-card">
+              <span id="hr-result" class="vital-big-text">--</span>
+              <span id="hr-badge" class="vital-badge">--</span>
+            </div>
+            <div class="disclaimer"><i class="ti-alert-triangle"></i> Camera-based estimate. Improved green-channel algorithm. Not a medical device.</div>
+            <button class="btn primary" onclick="window.vedaApp.startHR()">Measure again</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Breath Rate Measurement View -->
+      <section id="page-br-measurement" class="view">
+        <div class="page-scroll">
+          <div class="section-header"><h2>Breath Rate</h2><span class="section-sub">Microphone-based measurement</span></div>
+          <div class="br-panel">
+            <p class="br-instruction">Place your phone near your face and breathe normally. 30 seconds of microphone analysis.</p>
+            <div class="br-countdown">
+              <svg viewBox="0 0 100 100" class="hr-ring"><circle cx="50" cy="50" r="45" class="hr-ring-bg"/><circle id="br-ring-progress" cx="50" cy="50" r="45" class="hr-ring-fill"/></svg>
+              <span id="br-time-text" class="hr-time">30s</span>
+            </div>
+            <div id="br-tap-count" class="br-tap-count" style="display:none;">0</div>
+            <canvas id="br-waveform" width="300" height="80" class="hr-waveform"></canvas>
+            <button class="btn primary br-start-btn" onclick="window.vedaApp.startBR()"><i class="ti-microphone"></i> Start measurement</button>
+          </div>
+          <div id="br-result-view" style="display:none;">
+            <div class="hr-result-card">
+              <span id="br-result" class="vital-big-text">--</span>
+            </div>
+            <div class="disclaimer"><i class="ti-alert-triangle"></i> Estimated from microphone breathing pattern.</div>
+            <button class="btn primary" onclick="window.vedaApp.startBR()">Measure again</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SYMPTOMS PAGE -->
+      <section id="page-symptoms" class="view">
+        <div class="page-scroll">
+          <div class="section-header"><h2>Symptoms</h2><span class="section-sub">Select what you feel</span></div>
+          <div id="symptom-grid" class="symptom-grid"></div>
+        </div>
+      </section>
+
+      <!-- LOCATION PAGE -->
+      <section id="page-location" class="view">
+        <div class="page-scroll">
+          <div class="section-header"><h2>Location</h2><span class="section-sub">GPS & weather</span></div>
+          <div class="location-card">
+            <div class="location-info"><i class="ti-map-pin"></i><span id="location-text">Acquiring GPS...</span></div>
+            <div class="location-info"><i class="ti-temperature"></i><span id="location-temp">--</span></div>
+            <div class="location-info"><i class="ti-radar"></i><span id="location-accuracy">Accuracy unknown</span></div>
+            <div class="location-info"><i class="ti-clock"></i><span id="location-updated">Waiting for update</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MAP PAGE -->
+      <section id="page-map" class="view" role="tabpanel" aria-labelledby="tab-map" tabindex="0" hidden>
+        <div class="map-wrapper">
+          <!-- Search Bar -->
+          <div class="map-search-bar">
+            <input type="text" id="map-search-input" class="map-search-input" placeholder="Search hospitals, pharmacies..." oninput="window.vedaApp.onSearchInput(this.value)" />
+            <div id="search-results" class="search-results-dropdown" style="display:none;"></div>
+          </div>
+          <!-- Status (shown as brief toast only) -->
+          <div id="map-status" class="map-status" style="display:none;">Preparing map and GPS...</div>
+          <!-- Map Container -->
+          <div id="map-container" class="map-container">
+            <div class="map-skeleton" id="map-skeleton">
+              <div class="map-skeleton-dot"></div>
+              <div class="map-skeleton-text">Loading map...</div>
+            </div>
+          </div>
+          <!-- My Location FAB (bottom-right, Google Maps style) -->
+          <button id="my-location-btn" class="my-location-btn" onclick="window.vedaApp.recenterMap()" title="Recenter map to your location"><i class="ti ti-location"></i></button>
+          <!-- Nearby Care Chip (on-demand) -->
+          <button class="nearby-chip" id="nearby-chip" onclick="window.vedaApp.toggleNearbyPanel()" style="display:none;"><i class="ti ti-stethoscope"></i> Nearby</button>
+          <!-- Nearby Care Carousel (hidden by default) -->
+          <div id="nearby-care-list" class="nearby-care-list" style="display:none;"></div>
+          <!-- Route Sheet -->
+          <div id="route-sheet" class="bottom-sheet">
+            <div class="sheet-handle"></div>
+            <div class="sheet-info"></div>
+            <div class="popup-actions" style="margin-bottom:8px;">
+              <button class="popup-action-btn primary" onclick="window.vedaApp.openRouteInGoogleMaps()"><i class="ti-brand-google-maps"></i> Directions</button>
+              <button class="popup-action-btn call" onclick="window.vedaApp.startVoiceNav()"><i class="ti-volume"></i> Navigate</button>
+              <button class="popup-action-btn secondary" onclick="window.vedaApp.closeRouteSheet()">Close</button>
+            </div>
+          </div>
+          <!-- Emergency Sheet -->
+          <div id="emergency-sheet" class="bottom-sheet emergency-sheet" onclick="window.vedaApp.toggleEmergencyExpand()">
+            <div class="emergency-compact">
+              <div class="sos-countdown-ring compact" id="sos-ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" class="hr-ring-bg"/><circle id="sos-ring-fill" cx="50" cy="50" r="45" class="hr-ring-fill"/></svg><span id="sos-timer-text">10</span></div>
+              <div class="emergency-info">
+                <div class="emergency-title"><i class="ti-phone"></i> Emergency SOS</div>
+                <div class="emergency-sub">Auto-call in <strong id="sos-countdown">--</strong>s</div>
+              </div>
+              <div class="emergency-actions">
+                <button class="popup-action-btn call" onclick="event.stopPropagation();window.location.href='tel:112'" style="text-decoration:none;"><i class="ti-phone"></i></button>
+              </div>
+            </div>
+            <div class="emergency-expanded-content">
+              <div class="sheet-handle"></div>
+              <h3><i class="ti-phone"></i> Emergency SOS</h3>
+              <p>Tap to call emergency services. Auto-calling in <strong id="sos-countdown-expanded">--</strong>s</p>
+              <div class="sos-countdown-ring" id="sos-ring-expanded"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" class="hr-ring-bg"/><circle id="sos-ring-fill-expanded" cx="50" cy="50" r="45" class="hr-ring-fill"/></svg><span id="sos-timer-text-expanded">10</span></div>
+              <div class="popup-actions" style="margin-bottom:8px;">
+                <a href="tel:112" class="popup-action-btn call" style="text-decoration:none;"><i class="ti-phone"></i> Call 112</a>
+                <a href="tel:199" class="popup-action-btn call" style="text-decoration:none;"><i class="ti-phone"></i> Call 199</a>
+              </div>
+              <button class="btn-sm" onclick="event.stopPropagation();window.vedaApp.cancelSOS()">Cancel SOS</button>
+            </div>
+          </div>
+          <!-- Favorites Panel -->
+          <div id="favorites-panel" class="favorites-panel" style="display:none;">
+            <div class="favorites-header">
+              <h3><i class="ti-star"></i> Saved Places</h3>
+              <button class="btn-sm" onclick="window.vedaApp.toggleFavoritesPanel()"><i class="ti-x"></i></button>
+            </div>
+            <div id="favorites-list" class="favorites-list"></div>
+            <div class="favorites-empty" id="favorites-empty">No saved places yet. Tap the star on any hospital or pharmacy to save it.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HISTORY PAGE -->
+      <section id="page-history" class="view" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+        <div class="page-scroll">
+          <div class="section-header"><h2>History</h2><span class="section-sub">Biometric events</span></div>
+          <div id="history-content" class="history-content"></div>
+        </div>
+      </section>
+
+      <!-- PROFILE PAGE -->
+      <section id="page-profile" class="view" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" hidden>
+        <div class="page-scroll">
+          <div class="section-header"><h2>Profile</h2><span class="section-sub">Settings</span></div>
+          <div id="profile-form" class="profile-form"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Chat Panel -->
+    <div id="chat-panel" class="chat-panel">
+      <div class="chat-header"><span>VEDA Chat</span><button id="chat-close" class="chat-close-btn"><i class="ti-x"></i></button></div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row"><input id="chat-input" type="text" placeholder="Type a message..." class="chat-input" /><button id="chat-send" class="chat-send-btn"><i class="ti-send"></i></button></div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav id="bottomnav" class="app-tabs" role="tablist" aria-label="Primary VEDA sections">
+      <a id="tab-home" href="#/" class="nav-item active" data-route="#/" role="tab" aria-selected="true" aria-controls="page-home"><i class="ti ti-home" aria-hidden="true"></i><span>Home</span></a>
+      <a id="tab-vitals" href="#/vitals" class="nav-item" data-route="#/vitals" role="tab" aria-selected="false" aria-controls="page-vitals"><i class="ti ti-heart-rate-monitor" aria-hidden="true"></i><span>Vitals</span></a>
+      <a id="tab-map" href="#/map" class="nav-item" data-route="#/map" role="tab" aria-selected="false" aria-controls="page-map"><i class="ti ti-map-pin" aria-hidden="true"></i><span>Map</span></a>
+      <a id="tab-history" href="#/history" class="nav-item" data-route="#/history" role="tab" aria-selected="false" aria-controls="page-history"><i class="ti ti-chart-line" aria-hidden="true"></i><span>History</span></a>
+      <a id="tab-profile" href="#/profile" class="nav-item" data-route="#/profile" role="tab" aria-selected="false" aria-controls="page-profile"><i class="ti ti-user" aria-hidden="true"></i><span>Profile</span></a>
+    </nav>
+  </div>
+  <script type="module" src="/script.js"></script>
+</body>
+</html>
