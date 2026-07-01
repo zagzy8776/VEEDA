@@ -50,19 +50,37 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
     setMessages(m => [...m, { id: Date.now(), role: 'user', content }]);
     setTyping(true);
 
-    const d = await apiFetch<{ conversationReply?: string; reply?: string }>('/api/wellness-event', {
+    // Try AI-powered chat first
+    let reply: string | null = null;
+    const aiResult = await apiFetch<{ conversationReply: string; source: string }>('/api/ai-chat', {
       method: 'POST',
       body: JSON.stringify({
-        eventType: 'chat',
         message: content,
         vitals,
         analysis,
-        wellnessScore,
-        profile: { name: profile?.name, age: profile?.age, weight: profile?.weight },
+        patient_id: profile?.name || 'patient-001',
       }),
     });
+    if (aiResult?.conversationReply) {
+      reply = aiResult.conversationReply;
+    }
 
-    const reply = d?.conversationReply || d?.reply || buildReply(content, vitals, analysis);
+    // Fallback to rule-based
+    if (!reply) {
+      const d = await apiFetch<{ conversationReply?: string; reply?: string }>('/api/wellness-event', {
+        method: 'POST',
+        body: JSON.stringify({
+          eventType: 'chat',
+          message: content,
+          vitals,
+          analysis,
+          wellnessScore,
+          profile: { name: profile?.name, age: profile?.age, weight: profile?.weight },
+        }),
+      });
+      reply = d?.conversationReply || d?.reply || buildReply(content, vitals, analysis);
+    }
+
     setMessages(m => [...m, { id: Date.now() + 1, role: 'assistant', content: reply }]);
     setTyping(false);
   }

@@ -10,6 +10,7 @@ import integrations from './routes/integrations.js';
 import fhir from './routes/fhir.js';
 import rawBiometrics from './routes/raw-biometrics.js';
 import clinician from './routes/clinician.js';
+import aiChat from './routes/ai-chat.js';
 import { attachActor } from './security.js';
 
 const app = express();
@@ -38,5 +39,6 @@ app.use('/api', clinician);
 app.use('/api/map', map);
 app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);
+app.use('/api', aiChat);
 
 app.listen(PORT, () => console.log(`VEDA backend running on port ${PORT}`));
