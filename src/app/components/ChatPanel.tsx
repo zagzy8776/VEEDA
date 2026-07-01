@@ -91,10 +91,25 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 12, scrollbarWidth: 'none' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 12, scrollbarWidth: 'thin', scrollbarColor: 'rgba(45,212,164,0.3) transparent' }}>
               {messages.map(msg => (
                 <motion.div key={msg.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                  style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '10px 14px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? 'rgba(45,212,164,0.14)' : '#111827', border: `0.5px solid ${msg.role === 'user' ? 'rgba(45,212,164,0.25)' : 'rgba(255,255,255,0.07)'}`, fontSize: 13, color: C.text, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                  style={{ 
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', 
+                    maxWidth: '88%', 
+                    minWidth: '120px',
+                    padding: '12px 16px', 
+                    borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', 
+                    background: msg.role === 'user' ? 'rgba(45,212,164,0.18)' : '#111827', 
+                    border: `1px solid ${msg.role === 'user' ? 'rgba(45,212,164,0.35)' : 'rgba(255,255,255,0.1)'}`, 
+                    fontSize: 14, 
+                    color: C.text, 
+                    lineHeight: 1.6, 
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontWeight: 400,
+                    boxShadow: msg.role === 'user' ? '0 2px 8px rgba(45,212,164,0.1)' : '0 2px 8px rgba(0,0,0,0.2)'
+                  }}>
                   {msg.content}
                 </motion.div>
               ))}
@@ -120,9 +135,24 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: 10, padding: '10px 16px 20px', borderTop: `0.5px solid ${C.border}`, flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 10, padding: '10px 16px 20px', borderTop: `0.5px solid ${C.border}`, flexShrink: 0, background: 'rgba(9,14,26,0.95)' }}>
               <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !typing && send()} placeholder="Ask VEDA anything..."
-                style={{ flex: 1, padding: '10px 14px', background: '#111827', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 14, color: C.text, fontSize: 13, outline: 'none' }} />
+                style={{ 
+                  flex: 1, 
+                  padding: '12px 16px', 
+                  background: '#111827', 
+                  border: '1px solid rgba(255,255,255,0.12)', 
+                  borderRadius: 14, 
+                  color: C.text, 
+                  fontSize: 14, 
+                  fontWeight: 400,
+                  outline: 'none',
+                  transition: 'border-color 0.2s',
+                  fontFamily: 'Plus Jakarta Sans, sans-serif'
+                }} 
+                onFocus={(e) => e.target.style.borderColor = 'rgba(45,212,164,0.4)'}
+                onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
+              />
               <motion.button whileTap={{ scale: 0.92 }} onClick={() => send()} disabled={typing}
                 style={{ width: 42, height: 42, borderRadius: 14, background: typing ? 'rgba(45,212,164,0.3)' : C.teal, border: 'none', cursor: typing ? 'default' : 'pointer', display: 'grid', placeItems: 'center', color: '#04342C', flexShrink: 0 }}>
                 <Send size={17} strokeWidth={2.2} />

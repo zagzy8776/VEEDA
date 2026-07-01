@@ -83,13 +83,13 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}
-      style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
+      style={{ overflowY: 'auto', height: '100%', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin', scrollbarColor: 'rgba(45,212,164,0.3) transparent' }}>
       <div style={{ padding: '0 20px 100px' }}>
 
         <div style={{ paddingTop: 24, paddingBottom: 4 }}>
-          <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em', marginBottom: 4 }}>{dateStr}</div>
-          <div style={{ fontSize: 20, fontWeight: 500, color: C.text }}>
-            Good {greeting}, <span style={{ color: C.teal, fontWeight: 700 }}>{profile.name}</span>
+          <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em', marginBottom: 4, fontWeight: 500 }}>{dateStr}</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>
+            Good {greeting}, <span style={{ color: C.teal, fontWeight: 700 }}>{profile?.name || 'there'}</span>
           </div>
         </div>
 
