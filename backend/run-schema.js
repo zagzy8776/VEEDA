@@ -1,7 +1,7 @@
 import { Pool } from '@neondatabase/serverless';
 
 const pool = new Pool({
-  connectionString: 'postgresql://neondb_owner:npg_7oOPiX4bdgqf@ep-fancy-queen-a2gams03-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
+  connectionString: process.env.DATABASE_URL,
 });
 
 const statements = [
