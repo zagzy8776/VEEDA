@@ -9,11 +9,11 @@ const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', border: 'rgba(25
 interface Msg { id: number; role: 'user' | 'assistant'; content: string; }
 
 const SUGGESTIONS = [
-  'How are my vitals?',
-  'Am I drinking enough water?',
-  'What should I focus on today?',
-  'Is my heart rate normal?',
-  'How was my sleep?',
+  'Summarize current clinical risk',
+  'Explain the NEWS2 score',
+  'Review oxygenation trend',
+  'Assess sepsis risk',
+  'How is recovery trending?',
 ];
 
 const EMERGENCY_NUMBER = import.meta.env.VITE_EMERGENCY_NUMBER || '112';
@@ -27,7 +27,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
   const name = profile?.name || 'there';
   const [messages, setMessages] = useState<Msg[]>([{
     id: 0, role: 'assistant',
-    content: `Hi ${name}! I'm VEDA, your wellness assistant. ${wellnessScore !== null ? `Your current wellness score is **${wellnessScore}**.` : 'Measure your vitals to get a wellness score.'} How can I help you right now?`,
+    content: `VEEDA Clinical Decision Support active. ${analysis?.clinicalScores?.news2 ? `Current NEWS2: ${analysis.clinicalScores.news2.total}.` : 'NEWS2 pending complete observations.'} Submit a clinical question or review current risk.`,
   }]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
@@ -37,9 +37,9 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
   useEffect(() => {
     setMessages([{
       id: 0, role: 'assistant',
-      content: `Hi ${name}! I'm VEDA, your wellness assistant. ${wellnessScore !== null ? `Your current wellness score is ${wellnessScore}.` : 'Measure your vitals to get a wellness score.'} How can I help you right now?`,
+      content: `VEEDA Clinical Decision Support active. ${analysis?.clinicalScores?.news2 ? `Current NEWS2: ${analysis.clinicalScores.news2.total}.` : 'NEWS2 pending complete observations.'} Submit a clinical question or review current risk.`,
     }]);
-  }, [name]);
+  }, [name, analysis?.clinicalScores?.news2?.total]);
 
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, open]);
 
@@ -62,7 +62,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
       }),
     });
 
-    const reply = d?.conversationReply || d?.reply || buildReply(content, vitals, wellnessScore, name);
+    const reply = d?.conversationReply || d?.reply || buildReply(content, vitals, analysis);
     setMessages(m => [...m, { id: Date.now() + 1, role: 'assistant', content: reply }]);
     setTyping(false);
   }
@@ -82,9 +82,9 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
                   <Sparkles size={16} strokeWidth={2} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>VEDA Chat</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Clinical Support</div>
                   <div style={{ fontSize: 11, color: C.teal }}>
-                    {wellnessScore !== null ? `Score: ${wellnessScore} · ` : ''}{analysis?.riskLevel ?? 'Monitoring'}
+                    {analysis?.clinicalScores?.news2 ? `NEWS2: ${analysis.clinicalScores.news2.total} · ` : ''}{analysis?.riskLevel ?? 'Monitoring'}
                   </div>
                 </div>
               </div>
@@ -123,7 +123,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
             </div>
 
             <div style={{ display: 'flex', gap: 10, padding: '10px 16px calc(20px + env(safe-area-inset-bottom))', borderTop: `0.5px solid ${C.border}`, flexShrink: 0 }}>
-              <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !typing && send()} placeholder="Ask VEDA anything..."
+              <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !typing && send()} placeholder="Ask about NEWS2, qSOFA, trends..."
                 style={{ flex: 1, padding: '10px 14px', background: '#111827', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 14, color: C.text, fontSize: 16, outline: 'none', minWidth: 0 }} />
               <motion.button whileTap={{ scale: 0.92 }} onClick={() => send()} disabled={typing}
                 style={{ width: 42, height: 42, borderRadius: 14, background: typing ? 'rgba(45,212,164,0.3)' : C.teal, border: 'none', cursor: typing ? 'default' : 'pointer', display: 'grid', placeItems: 'center', color: '#04342C', flexShrink: 0 }}>
@@ -137,55 +137,30 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
   );
 }
 
-function buildReply(msg: string, vitals: Vitals, score: number | null, name: string): string {
+function buildReply(msg: string, vitals: Vitals, analysis: Analysis | null): string {
   const m = msg.toLowerCase();
+  const news2 = analysis?.clinicalScores?.news2;
+  const qsofa = analysis?.clinicalScores?.qsofa;
+  const scoreLine = news2
+    ? `NEWS2 ${news2.total}: ${news2.urgency?.action || 'Use local escalation protocol.'}`
+    : 'NEWS2 pending complete clinical observations.';
+  const qsofaLine = qsofa ? `qSOFA ${qsofa.total}${qsofa.sepsisRiskFlag ? ': sepsis risk trigger present.' : ': no qSOFA sepsis trigger.'}` : 'qSOFA pending.';
   if (m.includes('heart') || m.includes('bpm') || m.includes('pulse')) {
-    if (!vitals.heartRate) return `No heart rate measured yet, ${name}. Go to Vitals → tap Heart Rate to measure with your camera.`;
+    if (!vitals.heartRate) return `${scoreLine}\nHeart rate is not recorded in the current observation set.`;
     const hr = vitals.heartRate;
-    if (hr > 120) return `${name}, your heart rate is ${hr} bpm. That is higher than the usual resting range. Rest, breathe slowly, and seek urgent medical help if you feel unwell or it stays high.`;
-    if (hr > 100) return `Your heart rate is ${hr} bpm — slightly elevated. Try sitting quietly and taking slow deep breaths for 5 minutes.`;
-    if (hr < 50) return `Your heart rate is ${hr} bpm — lower than normal. This could be athletic fitness or could need attention. Monitor closely.`;
-    return `Your heart rate is ${hr} bpm. That is within the typical resting range of 60-100 bpm.`;
+    return `${scoreLine}\nCurrent heart rate: ${hr} beats/min. Interpret against NEWS2 heart-rate component and current clinical context.`;
   }
   if (m.includes('breath') || m.includes('breathing') || m.includes('respiratory')) {
-    if (!vitals.respiratory) return `No breath rate measured yet. Go to Vitals → tap Breath Rate and breathe normally near your microphone.`;
-    const br = vitals.respiratory;
-    if (br > 24) return `Your breathing rate is ${br} br/min — elevated. Sit upright, breathe slowly through your nose. If breathing feels difficult, seek medical help immediately.`;
-    if (br < 8) return `Your breathing rate is ${br} br/min — unusually low. Ensure you're not hyperventilating. Monitor closely.`;
-    return `Your breathing rate is ${br} br/min — normal range is 12–20. You're breathing well, ${name}.`;
+    return `${scoreLine}\nCurrent respiratory rate: ${vitals.respiratory ?? 'not recorded'} /min. Respiratory rate is also a qSOFA parameter. ${qsofaLine}`;
   }
-  if (m.includes('water') || m.includes('hydrat')) {
-    if (!vitals.hydration) return `No hydration logged yet today. Go to Vitals and tap +250ml or +500ml every time you drink.`;
-    return `Your hydration is at ${vitals.hydration}%. ${vitals.hydration < 50 ? 'You need water urgently — drink at least 500ml now.' : vitals.hydration < 75 ? 'Keep going — try to reach 100% before end of day.' : `Great job staying hydrated, ${name}!`}`;
-  }
-  if (m.includes('score') || m.includes('wellness')) {
-    if (score === null) return `No wellness score yet, ${name}. Measure at least one vital to calculate your score.`;
-    return `Your wellness score is ${score}/100. ${score >= 80 ? 'Excellent condition! Keep up your healthy habits.' : score >= 60 ? 'Good condition with room to improve. Focus on hydration and rest.' : 'Your body needs attention. Rest, hydrate, and consider seeking medical advice if symptoms persist.'}`;
+  if (m.includes('score') || m.includes('news') || m.includes('risk')) {
+    return `${scoreLine}\n${qsofaLine}`;
   }
   if (m.includes('temperature') || m.includes('fever') || m.includes('temp')) {
-    if (!vitals.skinTemp) return `No temperature logged yet. Go to Vitals → enter your temperature manually.`;
-    const t = vitals.skinTemp;
-    if (t >= 38.5) return `⚠ Your temperature is ${t}°C — that's a fever. Rest, stay hydrated, and seek medical attention if it rises above 39°C or if you have other symptoms.`;
-    if (t > 37.5) return `Your temperature is ${t}°C — slightly elevated. Monitor it and rest.`;
-    return `Your temperature is ${t}°C — within normal range (36.1–37.2°C).`;
-  }
-  if (m.includes('sleep')) {
-    return `Sleep data helps VEDA track your recovery. Use the Sleep/Wake buttons in Vitals to log your sleep sessions.`;
-  }
-  if (m.includes('step') || m.includes('walk')) {
-    return `Steps are tracked automatically using your phone's motion sensor while you carry it.`;
+    return `${scoreLine}\nCurrent temperature: ${vitals.skinTemp ?? 'not recorded'} Cel. Review NEWS2 temperature component.`;
   }
   if (m.includes('emergency') || m.includes('help') || m.includes('urgent')) {
-    return `If this is an emergency, go to the Map tab and tap the red Emergency SOS button to call ${EMERGENCY_NUMBER} immediately. Your location will be used to find nearby hospitals.`;
+    return `${scoreLine}\nIf immediate escalation is required, activate emergency workflow or call ${EMERGENCY_NUMBER}.`;
   }
-  if (m.includes('focus') || m.includes('today') || m.includes('improve')) {
-    const tips = [];
-    if (!vitals.heartRate) tips.push('Measure your heart rate');
-    if (!vitals.respiratory) tips.push('Check your breathing rate');
-    if ((vitals.hydration ?? 0) < 75) tips.push('Drink more water');
-    if (!vitals.skinTemp) tips.push('Log your temperature');
-    if (!tips.length) return `You're doing great, ${name}! All vitals are tracked. Keep logging throughout the day for accurate trend data.`;
-    return `Here's what to focus on today, ${name}:\n${tips.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
-  }
-  return `I'm here to help you monitor your wellness, ${name}. Ask me about your heart rate, breathing, hydration, temperature, or sleep. For medical emergencies, use the SOS button on the Map tab.`;
+  return `${scoreLine}\n${qsofaLine}`;
 }

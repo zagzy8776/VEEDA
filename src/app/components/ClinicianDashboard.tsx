@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownWideNarrow, Bed, ShieldAlert } from 'lucide-react';
 import type { BiometricEvent } from '../useVedaApp';
+import { apiFetch } from '../api';
 
 const C = { green: '#22C55E', yellow: '#FACC15', orange: '#F97316', red: '#E24B4A', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.9)', border: 'rgba(255,255,255,0.09)' };
 
@@ -65,7 +66,26 @@ function riskLabel(score: number, singleThree: boolean) {
 
 export function ClinicianDashboard({ history }: { history: BiometricEvent[] }) {
   const [prioritySort, setPrioritySort] = useState(true);
+  const [backendRoster, setBackendRoster] = useState<any[] | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ roster: any[] }>('/api/clinician/roster').then(data => {
+      if (data?.roster) setBackendRoster(data.roster);
+    });
+  }, []);
+
   const roster = useMemo<PatientRow[]>(() => {
+    if (backendRoster) {
+      const rows = backendRoster.map(row => ({
+        id: row.patientId,
+        ward: row.wardId || 'ward-a',
+        bed: row.bed || '-',
+        latest: row.latest || {},
+        news2: row.news2?.total ?? 0,
+        singleThree: Object.values(row.news2?.components || {}).some((v: any) => v === 3),
+      }));
+      return rows.sort((a, b) => prioritySort ? b.news2 - a.news2 : a.id.localeCompare(b.id));
+    }
     const patients = new Map<string, PatientRow>();
     history.forEach((event: any) => {
       const id = event.patient_id || event.patientId || 'patient-001';
@@ -78,7 +98,7 @@ export function ClinicianDashboard({ history }: { history: BiometricEvent[] }) {
       return { ...row, news2: scores.reduce((a, b) => a + b, 0), singleThree: scores.some(s => s === 3) };
     });
     return rows.sort((a, b) => prioritySort ? b.news2 - a.news2 : a.id.localeCompare(b.id));
-  }, [history, prioritySort]);
+  }, [history, prioritySort, backendRoster]);
 
   return (
     <div style={{ overflowY: 'auto', height: '100%', padding: '20px 18px 100px' }}>

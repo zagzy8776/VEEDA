@@ -259,6 +259,20 @@ export function useVedaApp() {
     if (key in sources) setSources(s => ({ ...s, [key]: source }));
   }, []);
 
+  const ingestRawBiometric = useCallback(async (metricType: 'HEART_RATE' | 'SPO2' | 'RESP_RATE' | 'RR_INTERVAL', value: number, unit: string, metadata: Record<string, unknown> = {}) => {
+    await apiFetch('/api/raw-biometrics', {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_id: actor.patientId,
+        timestamp: new Date().toISOString(),
+        metric_type: metricType,
+        value,
+        unit,
+        metadata,
+      }),
+    });
+  }, [actor.patientId]);
+
   const logWater = useCallback((ml: number) => {
     setHydrationMl(prev => {
       const next = prev + ml;
@@ -299,7 +313,7 @@ export function useVedaApp() {
     actor, canCreateVitals: canCreateVitals(actor.role),
     wellnessScore, profile, steps, setStepsState, sleepHours, setSleepHours,
     stepStatus, enableStepTracking: startSteps,
-    hydrationMl, logWater, setVital, saveBiometric, fetchHistory, saveProfile, sendTelemetry,
+    hydrationMl, logWater, setVital, ingestRawBiometric, saveBiometric, fetchHistory, saveProfile, sendTelemetry,
   };
 }
 

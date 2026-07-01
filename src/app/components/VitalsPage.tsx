@@ -185,7 +185,7 @@ function BRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 }
 
 export function VitalsPage({ app }: { app: VedaApp }) {
-  const { vitals, hydrationMl, logWater, setVital, saveBiometric, history, sleepHours, setSleepHours, steps, stepStatus, enableStepTracking, profile } = app;
+  const { vitals, hydrationMl, logWater, setVital, ingestRawBiometric, saveBiometric, history, sleepHours, setSleepHours, steps, stepStatus, enableStepTracking, profile } = app;
   const canWriteVitals = app.canCreateVitals;
   const [tempInput, setTempInput] = useState('');
   const [bpInput, setBpInput] = useState('');
@@ -216,12 +216,14 @@ export function VitalsPage({ app }: { app: VedaApp }) {
   function handleHRResult(bpm: number, confidence: string) {
     setVital('heartRate', bpm, 'Camera (rPPG)');
     saveBiometric('heart_rate', bpm, 'beats/min', { confidence });
+    ingestRawBiometric('HEART_RATE', bpm, 'beats/min', { source: 'camera_rppg', confidence });
     setShowHR(false);
   }
 
   function handleBRResult(bpm: number) {
     setVital('respiratory', bpm, 'Microphone');
     saveBiometric('breath_rate', bpm, '/min');
+    ingestRawBiometric('RESP_RATE', bpm, '/min', { source: 'microphone' });
     setShowBR(false);
   }
 
