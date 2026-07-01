@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Pool } from '@neondatabase/serverless';
 
 const pool = new Pool({
