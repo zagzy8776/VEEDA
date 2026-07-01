@@ -250,11 +250,21 @@ export type StepStatus = 'idle' | 'requesting' | 'listening' | 'permission_requi
 export function useStepCounter(onStep: (total: number) => void, initialTotal = 0) {
   const [status, setStatus] = useState<StepStatus>('idle');
   const stepsRef = useRef(initialTotal);
-  const filteredRef = useRef<number | null>(null);
-  const varianceRef = useRef(0);
-  const lastStepRef = useRef(0);
-  const risingRef = useRef(false);
   const listeningRef = useRef(false);
+
+  // Walking gait detection state
+  const accelBufferRef = useRef<number[]>([]);          // raw acceleration magnitude samples
+  const zAccelRef = useRef<number[]>([]);                // vertical acceleration samples
+  const stepTimestampsRef = useRef<number[]>([]);        // timestamps of detected steps
+  const lastStepTimeRef = useRef(0);
+  const walkActiveRef = useRef(false);                   // true when in a walking bout
+  const walkStepCountRef = useRef(0);                    // steps in current walking bout
+  const lastWalkTotalRef = useRef(0);                    // steps counted before current walk
+  const zeroCrossRef = useRef<{ last: number; count: number }>({ last: 0, count: 0 });
+
+  // Low-pass filter state for acceleration
+  const lpFilteredRef = useRef<number | null>(null);
+  const lpZFilteredRef = useRef<number | null>(null);
 
   const start = useCallback(async () => {
     if (listeningRef.current) return;
@@ -265,6 +275,18 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
 
     async function attach() {
       listeningRef.current = true;
+      // Reset all state
+      accelBufferRef.current = [];
+      zAccelRef.current = [];
+      stepTimestampsRef.current = [];
+      lastStepTimeRef.current = 0;
+      walkActiveRef.current = false;
+      walkStepCountRef.current = 0;
+      lastWalkTotalRef.current = stepsRef.current;
+      zeroCrossRef.current = { last: 0, count: 0 };
+      lpFilteredRef.current = null;
+      lpZFilteredRef.current = null;
+
       window.addEventListener('devicemotion', handleMotion, true);
       setStatus('listening');
     }
@@ -287,31 +309,132 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
   function handleMotion(e: DeviceMotionEvent) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-    const mag = Math.sqrt((a.x || 0) ** 2 + (a.y || 0) ** 2 + (a.z || 0) ** 2);
+
+    const ax = a.x || 0;
+    const ay = a.y || 0;
+    const az = a.z || 0;
+    const mag = Math.sqrt(ax * ax + ay * ay + az * az);
     const now = Date.now();
 
-    if (filteredRef.current === null) {
-      filteredRef.current = mag;
+    // ── Low-pass filter the total magnitude ──
+    if (lpFilteredRef.current === null) {
+      lpFilteredRef.current = mag;
+      lpZFilteredRef.current = az;
       return;
     }
 
-    const filtered = filteredRef.current * 0.84 + mag * 0.16;
-    filteredRef.current = filtered;
-    const delta = mag - filtered;
-    varianceRef.current = varianceRef.current * 0.94 + Math.abs(delta) * 0.06;
+    // Smooth at ~10Hz (alpha=0.2 for 50-60Hz sensor data)
+    const alpha = 0.2;
+    const lpMag = lpFilteredRef.current * (1 - alpha) + mag * alpha;
+    const lpZ = lpZFilteredRef.current * (1 - alpha) + az * alpha;
+    lpFilteredRef.current = lpMag;
+    lpZFilteredRef.current = lpZ;
 
-    const threshold = Math.max(0.9, Math.min(2.6, varianceRef.current * 2.4));
-    const minGap = 320;
-    const maxGap = 2400;
-    const elapsed = now - lastStepRef.current;
+    // ── High-pass: remove gravity (DC) to get dynamic acceleration ──
+    const dynamicMag = mag - lpMag;
+    const dynamicZ = lpZFilteredRef.current !== null ? az - lpZ : 0;
 
-    if (delta > threshold) risingRef.current = true;
+    // ── Buffer recent samples for frequency analysis ──
+    accelBufferRef.current.push(dynamicMag);
+    zAccelRef.current.push(dynamicZ);
+    if (accelBufferRef.current.length > 100) {
+      accelBufferRef.current.shift();
+      zAccelRef.current.shift();
+    }
 
-    if (risingRef.current && delta < threshold * 0.35 && elapsed > minGap && (lastStepRef.current === 0 || elapsed < maxGap)) {
-      risingRef.current = false;
-      stepsRef.current++;
-      lastStepRef.current = now;
-      onStep(stepsRef.current);
+    // ── Zero-crossing detection on vertical acceleration ──
+    // Walking produces a characteristic sinusoidal pattern in vertical acceleration
+    // Each step = one positive-to-negative zero crossing
+    if (zeroCrossRef.current.last !== 0) {
+      const prev = zeroCrossRef.current.last;
+      if (prev > 0 && dynamicZ <= 0) {
+        zeroCrossRef.current.count++;
+      }
+    }
+    zeroCrossRef.current.last = dynamicZ;
+
+    // ── Step detection: look for walking gait pattern ──
+    // Walking cadence is 90-130 steps/min = 1.5-2.2 Hz = 460-670ms between steps
+    // We detect a step when:
+    // 1. Dynamic acceleration exceeds a threshold
+    // 2. The timing between peaks matches walking cadence
+    // 3. There's a zero-crossing in vertical acceleration (gait signature)
+
+    const buffer = accelBufferRef.current;
+    if (buffer.length < 10) return;
+
+    // Adaptive threshold based on recent variance
+    const recent = buffer.slice(-20);
+    const mean = recent.reduce((s, v) => s + Math.abs(v), 0) / recent.length;
+    const threshold = Math.max(0.5, mean * 1.8);
+
+    // Look for a peak in the last few samples
+    const len = buffer.length;
+    const isPeak = buffer[len - 1] > threshold &&
+                   buffer[len - 1] > buffer[len - 2] &&
+                   buffer[len - 2] > buffer[len - 3];
+
+    if (!isPeak) return;
+
+    const elapsed = now - lastStepTimeRef.current;
+
+    // Walking cadence check: 300ms-800ms between steps (75-200 steps/min)
+    const isWalkingCadence = elapsed >= 300 && elapsed <= 800;
+
+    // First step or continuing a walk
+    if (lastStepTimeRef.current === 0 || isWalkingCadence) {
+      lastStepTimeRef.current = now;
+      stepTimestampsRef.current.push(now);
+      if (stepTimestampsRef.current.length > 50) stepTimestampsRef.current.shift();
+
+      // ── Walking bout detection ──
+      // A walking bout = 4+ consecutive steps at walking cadence
+      const recentSteps = stepTimestampsRef.current;
+      if (recentSteps.length >= 4) {
+        // Check if the last 4+ steps are at walking cadence
+        const last4 = recentSteps.slice(-4);
+        const gaps: number[] = [];
+        for (let i = 1; i < last4.length; i++) {
+          gaps.push(last4[i] - last4[i - 1]);
+        }
+        const allWalking = gaps.every(g => g >= 300 && g <= 800);
+
+        if (allWalking) {
+          if (!walkActiveRef.current) {
+            // Starting a new walking bout
+            walkActiveRef.current = true;
+            walkStepCountRef.current = 0;
+            lastWalkTotalRef.current = stepsRef.current;
+          }
+          walkStepCountRef.current++;
+
+          // Only count the step if we're in a confirmed walking bout
+          // This filters out isolated movements (like rolling in bed)
+          if (walkStepCountRef.current >= 4) {
+            // We're in a confirmed walk — count this step
+            stepsRef.current = lastWalkTotalRef.current + walkStepCountRef.current;
+            onStep(stepsRef.current);
+          }
+        } else {
+          // Cadence broken — end walking bout
+          if (walkActiveRef.current && walkStepCountRef.current < 4) {
+            // False start — revert to pre-walk count
+            stepsRef.current = lastWalkTotalRef.current;
+            onStep(stepsRef.current);
+          }
+          walkActiveRef.current = false;
+          walkStepCountRef.current = 0;
+        }
+      }
+    } else if (elapsed > 2000) {
+      // More than 2 seconds since last step — not walking
+      if (walkActiveRef.current && walkStepCountRef.current < 4) {
+        // False start — revert
+        stepsRef.current = lastWalkTotalRef.current;
+        onStep(stepsRef.current);
+      }
+      walkActiveRef.current = false;
+      walkStepCountRef.current = 0;
     }
   }
 
@@ -323,10 +446,16 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
 
   const reset = useCallback(() => {
     stepsRef.current = 0;
-    filteredRef.current = null;
-    varianceRef.current = 0;
-    lastStepRef.current = 0;
-    risingRef.current = false;
+    accelBufferRef.current = [];
+    zAccelRef.current = [];
+    stepTimestampsRef.current = [];
+    lastStepTimeRef.current = 0;
+    walkActiveRef.current = false;
+    walkStepCountRef.current = 0;
+    lastWalkTotalRef.current = 0;
+    zeroCrossRef.current = { last: 0, count: 0 };
+    lpFilteredRef.current = null;
+    lpZFilteredRef.current = null;
   }, []);
 
   return { start, stop, reset, status };
