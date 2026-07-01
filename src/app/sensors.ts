@@ -23,6 +23,11 @@ export function useHeartRate(onResult: (bpm: number, confidence: string) => void
     if (timerRef.current) clearInterval(timerRef.current);
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
+    // Remove hidden video from DOM
+    if (videoRef.current && videoRef.current.parentNode) {
+      videoRef.current.parentNode.removeChild(videoRef.current);
+      videoRef.current = null;
+    }
   }, []);
 
   const start = useCallback(async () => {
@@ -43,8 +48,20 @@ export function useHeartRate(onResult: (bpm: number, confidence: string) => void
       video.srcObject = stream;
       video.setAttribute('playsinline', 'true');
       video.muted = true;
-      await video.play();
+      video.style.position = 'fixed';
+      video.style.opacity = '0';
+      video.style.pointerEvents = 'none';
+      video.style.width = '1px';
+      video.style.height = '1px';
+      video.style.top = '-9999px';
+      video.style.left = '-9999px';
+      // Required: attach to DOM for mobile Safari/Chrome getUserMedia
+      document.body.appendChild(video);
       videoRef.current = video;
+
+      try { await video.play(); } catch (playErr) {
+        console.warn('video.play() failed, continuing anyway:', playErr);
+      }
 
       const canvas = document.createElement('canvas');
       canvas.width = 320; canvas.height = 240;
@@ -326,9 +343,12 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
     // Smooth at ~10Hz (alpha=0.2 for 50-60Hz sensor data)
     const alpha = 0.2;
     const lpMag = lpFilteredRef.current * (1 - alpha) + mag * alpha;
-    const lpZ = lpZFilteredRef.current * (1 - alpha) + az * alpha;
+    let lpZ = 0;
+    if (lpZFilteredRef.current !== null) {
+      lpZ = lpZFilteredRef.current * (1 - alpha) + az * alpha;
+      lpZFilteredRef.current = lpZ;
+    }
     lpFilteredRef.current = lpMag;
-    lpZFilteredRef.current = lpZ;
 
     // ── High-pass: remove gravity (DC) to get dynamic acceleration ──
     const dynamicMag = mag - lpMag;
