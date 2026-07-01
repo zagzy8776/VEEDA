@@ -35,10 +35,103 @@ export function canonicalUnit(type, unit) {
   return expected;
 }
 
-export function biometricToFhirObservation(row) {
+// ── FHIR Patient Resource ─────────────────────────────────────────────────────
+export function buildPatientResource(patientId, profile = {}) {
+  const nameParts = (profile.name || patientId || '').split(' ');
+  return {
+    resourceType: 'Patient',
+    id: patientId,
+    identifier: [{
+      system: 'https://veeda.local/fhir/identifiers',
+      value: patientId,
+    }],
+    name: [{
+      use: 'usual',
+      family: nameParts.slice(1).join(' ') || 'Unknown',
+      given: [nameParts[0] || patientId],
+    }],
+    gender: profile.sex || 'unknown',
+    birthDate: profile.age ? `${new Date().getFullYear() - profile.age}-01-01` : undefined,
+    telecom: [],
+    managingOrganization: {
+      reference: 'Organization/veda-default',
+      display: 'VEDA Default Organization',
+    },
+    meta: {
+      source: 'VEEDA',
+      tag: [{ system: 'https://veeda.local/fhir/tags', code: 'phone-sensor' }],
+    },
+  };
+}
+
+// ── FHIR Practitioner Resource ────────────────────────────────────────────────
+export function buildPractitionerResource(userId, role = 'unknown') {
+  const roleLabel = { patient: 'Patient', nurse: 'Nurse', attending: 'Physician', system_admin: 'Administrator' };
+  return {
+    resourceType: 'Practitioner',
+    id: userId || 'unknown',
+    identifier: [{
+      system: 'https://veeda.local/fhir/identifiers',
+      value: userId || 'unknown',
+    }],
+    name: [{
+      use: 'official',
+      family: userId || 'Unknown',
+      given: [roleLabel[role] || role],
+    }],
+    qualification: [{
+      code: {
+        coding: [{
+          system: 'https://veeda.local/fhir/roles',
+          code: role,
+          display: roleLabel[role] || role,
+        }],
+      },
+    }],
+    meta: {
+      source: 'VEEDA',
+      tag: [{ system: 'https://veeda.local/fhir/tags', code: 'phone-sensor' }],
+    },
+  };
+}
+
+// ── FHIR Encounter Resource ───────────────────────────────────────────────────
+export function buildEncounterResource(patientId, practitionerId, wardId = null) {
+  const encounterId = `enc-${patientId}-${Date.now()}`;
+  return {
+    resourceType: 'Encounter',
+    id: encounterId,
+    status: 'in-progress',
+    class: {
+      system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
+      code: 'AMB',
+      display: 'ambulatory',
+    },
+    subject: { reference: `Patient/${patientId}` },
+    participant: [{
+      individual: { reference: `Practitioner/${practitionerId || 'unknown'}` },
+    }],
+    location: wardId ? [{
+      location: {
+        reference: `Location/${wardId}`,
+        display: `Ward ${wardId}`,
+      },
+    }] : [],
+    period: {
+      start: new Date().toISOString(),
+    },
+    meta: {
+      source: 'VEEDA',
+      tag: [{ system: 'https://veeda.local/fhir/tags', code: 'phone-sensor' }],
+    },
+  };
+}
+
+// ── FHIR Observation Resource ─────────────────────────────────────────────────
+export function biometricToFhirObservation(row, encounterId = null) {
   const coding = LOINC[row.type] ?? { code: row.type, display: row.type };
   const unit = canonicalUnit(row.type, row.unit);
-  return {
+  const obs = {
     resourceType: 'Observation',
     id: String(row.id ?? ''),
     status: 'final',
@@ -71,6 +164,61 @@ export function biometricToFhirObservation(row) {
       tag: [{ system: 'https://veeda.local/fhir/tags', code: 'phone-sensor' }],
     },
   };
+  if (encounterId) {
+    obs.encounter = { reference: `Encounter/${encounterId}` };
+    obs.performer = [{ reference: `Practitioner/veda-system` }];
+  }
+  return obs;
+}
+
+// ── FHIR Transaction Bundle ───────────────────────────────────────────────────
+export function buildTransactionBundle(resources) {
+  return {
+    resourceType: 'Bundle',
+    type: 'transaction',
+    timestamp: new Date().toISOString(),
+    entry: resources.map(resource => {
+      const fullUrl = resource.resourceType === 'Observation' && resource.id
+        ? `urn:uuid:${resource.id}`
+        : resource.id
+          ? `urn:uuid:${resource.id}`
+          : undefined;
+
+      const url = resource.resourceType === 'Patient'
+        ? `Patient/${resource.id}`
+        : resource.resourceType === 'Practitioner'
+          ? `Practitioner/${resource.id}`
+          : resource.resourceType === 'Encounter'
+            ? `Encounter/${resource.id}`
+            : `Observation/${resource.id}`;
+
+      const method = resource.resourceType === 'Observation' ? 'POST' : 'PUT';
+
+      return {
+        fullUrl,
+        request: { method, url },
+        resource,
+      };
+    }),
+  };
+}
+
+// ── Full Bundle: Package Patient + Practitioner + Encounter + Observations ─────
+export function buildClinicalBundle({ patientId, profile, userId, role, wardId, observations, encounterId }) {
+  const encounter = buildEncounterResource(patientId, userId, wardId);
+  const actualEncounterId = encounter.id;
+
+  const resources = [
+    buildPatientResource(patientId, profile),
+    buildPractitionerResource(userId, role),
+    encounter,
+    ...observations.map(obs => biometricToFhirObservation(obs, actualEncounterId)),
+  ];
+
+  return {
+    bundle: buildTransactionBundle(resources),
+    encounterId: actualEncounterId,
+  };
 }
 
 export function fhirObservationToBiometric(observation) {
@@ -93,7 +241,7 @@ export function fhirObservationToBiometric(observation) {
     value: Number(quantity.value),
     unit,
     timestamp: observation.effectiveDateTime || new Date().toISOString(),
-    metadata: { fhirId: observation.id || null },
+    metadata: { fhirId: observation.id || null, encounter: observation.encounter?.reference || null },
   };
 }
 

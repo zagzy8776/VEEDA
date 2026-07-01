@@ -60,7 +60,6 @@ export default function App() {
     return <LoginGateway onContinue={() => {
       localStorage.setItem('veda_session_ready', 'true');
       setInstitutionalReady(true);
-      window.location.reload();
     }} />;
   }
 
