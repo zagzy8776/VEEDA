@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { apiFetch } from '../api';
+import { apiFetch, getActor } from '../api';
 import type { Vitals, Analysis, Profile } from '../useVedaApp';
 
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', border: 'rgba(255,255,255,0.09)' };
@@ -16,7 +16,6 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
-  const patientId = (() => { try { return JSON.parse(localStorage.getItem('veda_actor') || '{}')?.patientId || import.meta.env.VITE_VEDA_PATIENT_ID || 'patient-001'; } catch { return import.meta.env.VITE_VEDA_PATIENT_ID || 'patient-001'; } })();
 
   useEffect(() => {
     if (!open || messages.length) return;
@@ -29,8 +28,9 @@ export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, prof
     const content = (text ?? input).trim(); if (!content || typing) return;
     setInput(''); setMessages(m => [...m, { id: Date.now(), role: 'user', content }]); setTyping(true);
     try {
+      const actor = getActor();
       let reply: string | null = null;
-      const aiResult = await apiFetch<{ conversationReply: string; source: string }>('/api/ai-chat', { method: 'POST', body: JSON.stringify({ message: content, vitals, analysis, patient_id: patientId }) });
+      const aiResult = await apiFetch<{ conversationReply: string }>('/api/ai-chat', { method: 'POST', body: JSON.stringify({ message: content, vitals, analysis, patient_id: actor.patientId }) });
       if (aiResult?.conversationReply) reply = aiResult.conversationReply;
       if (!reply) {
         const d = await apiFetch<{ conversationReply?: string; reply?: string }>('/api/wellness-event', { method: 'POST', body: JSON.stringify({ eventType: 'chat', message: content, vitals, analysis, wellnessScore, profile }) });
