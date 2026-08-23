@@ -15,18 +15,22 @@ import { attachActor } from './security.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const isProduction = process.env.NODE_ENV === 'production';
+const configuredApiKey = process.env.VEDA_API_KEY;
+
+if (isProduction && !configuredApiKey) {
+  throw new Error('VEDA_API_KEY must be configured in production; refusing to start without API authentication.');
+}
 
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 app.use(express.json());
 app.use(attachActor);
 
-// API key guard (skip health check)
 app.use((req, res, next) => {
   if (req.path === '/api/health') return next();
+  if (!configuredApiKey) return next();
   const key = req.headers['x-veda-api-key'];
-  if (process.env.VEDA_API_KEY && key !== process.env.VEDA_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  if (key !== configuredApiKey) return res.status(401).json({ error: 'Unauthorized' });
   next();
 });
 
