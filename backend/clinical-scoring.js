@@ -20,7 +20,14 @@ function requireNumber(input, key, aliases = []) {
 
 function inRange(value, table) {
   const row = table.find(r => value >= r.min && value <= r.max);
+  if (!row) throw new Error(`No clinical scoring band defined for value ${value}`);
   return row.score;
+}
+
+function roundTemperature(value) {
+  // NEWS2 records temperature to one decimal place. Score the rounded
+  // observation so values such as 36.05°C cannot fall through a gap.
+  return Math.round((value + Number.EPSILON) * 10) / 10;
 }
 
 function consciousnessScore(value) {
@@ -41,7 +48,9 @@ export function validateVitals(input = {}) {
     heartRate,
     respiratoryRate,
     oxygenSaturation,
-    temperature,
+    temperature: temperature.missing
+      ? temperature
+      : { ...temperature, value: roundTemperature(temperature.value) },
     systolicBp,
     supplementalOxygen: Boolean(input.supplementalOxygen),
     spo2Scale: input.spo2Scale === 2 ? 2 : 1,
@@ -65,15 +74,24 @@ export function calculateNews2(input = {}) {
 
   if (v.oxygenSaturation.missing) missing.push('oxygenSaturation');
   else if (v.spo2Scale === 2) {
-    components.oxygenSaturation = inRange(v.oxygenSaturation.value, [
-      { min: 50, max: 83, score: 3 },
-      { min: 84, max: 85, score: 2 },
-      { min: 86, max: 87, score: 1 },
-      { min: 88, max: 92, score: 0 },
-      { min: 93, max: 94, score: 1 },
-      { min: 95, max: 96, score: 2 },
-      { min: 97, max: 100, score: 3 },
-    ]);
+    // NEWS2 SpO2 Scale 2 is only for patients with a clinically directed
+    // target range of 88–92%. On air, >=93% scores 0. When supplemental
+    // oxygen is present, 93–94/95–96/>=97 score 1/2/3 respectively.
+    components.oxygenSaturation = v.supplementalOxygen
+      ? inRange(v.oxygenSaturation.value, [
+          { min: 50, max: 83, score: 3 },
+          { min: 84, max: 85, score: 2 },
+          { min: 86, max: 92, score: 0 },
+          { min: 93, max: 94, score: 1 },
+          { min: 95, max: 96, score: 2 },
+          { min: 97, max: 100, score: 3 },
+        ])
+      : inRange(v.oxygenSaturation.value, [
+          { min: 50, max: 83, score: 3 },
+          { min: 84, max: 85, score: 2 },
+          { min: 86, max: 87, score: 1 },
+          { min: 88, max: 100, score: 0 },
+        ]);
   } else {
     components.oxygenSaturation = inRange(v.oxygenSaturation.value, [
       { min: 50, max: 91, score: 3 },
