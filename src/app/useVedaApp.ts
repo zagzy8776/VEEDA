@@ -107,8 +107,8 @@ export function useVedaApp() {
     supplementalOxygen: false,
     consciousness: 'alert',
   });
-  const [sources, setSources] = useState<VitalSources>({ heartRate: 'none', respiratory: 'none', oxygen: 'none', stamina: 'none', hydration: 'none', skinTemp: 'none', systolicBp: 'none' });
-  const [env, setEnv] = useState<EnvData>({ temp: '--', air: '--', weather: '--', gps: '--', outsideTemp: null });
+  const [sources, setSources] = useState<VitalSources>({ heartRate: 'none', respiratory: 'none', oxygen: 'unavailable', stamina: 'unavailable', hydration: 'none', skinTemp: 'manual entry only', systolicBp: 'manual entry' });
+  const [env, setEnv] = useState<EnvData>({ temp: '--', air: '--', weather: '--', gps: 'Acquiring GPS', outsideTemp: null });
   const [location, setLocation] = useState<Location>({ lat: null, lng: null, accuracy: null });
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [history, setHistory] = useState<BiometricEvent[]>([]);
@@ -128,9 +128,8 @@ export function useVedaApp() {
   const actor = getActor();
 
   const telemetryRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const locationRef = useRef<Location>({ lat: null, lng: null, accuracy: null });
+  const locationWatchRef = useRef<number | null>(null);
 
-  // Step counter — always running
   const { start: startSteps, status: stepStatus } = useStepCounter(useCallback((total: number) => {
     setStepsState(total);
     localStorage.setItem('veda_steps', String(total));
@@ -139,46 +138,48 @@ export function useVedaApp() {
 
   useEffect(() => { startSteps(); }, [startSteps]);
 
-  // Backend health
   useEffect(() => {
     apiFetch<{ status: string }>('/api/health').then(d => {
       setBackendStatus(d?.status === 'online' ? 'online' : 'failed');
-    });
+    }).catch(() => setBackendStatus('failed'));
   }, []);
 
-  // GPS
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      setEnv(e => ({ ...e, gps: 'Unavailable' }));
+      return;
+    }
+
     const success = (pos: GeolocationPosition) => {
       const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) };
       setLocation(loc);
-      locationRef.current = loc;
-      setEnv(e => ({ ...e, gps: 'Active' }));
+      setEnv(e => ({ ...e, gps: `Active${loc.accuracy ? ` ±${loc.accuracy}m` : ''}` }));
       fetchWeatherCoords(loc.lat, loc.lng);
     };
     const fail = () => {
-      const loc = { lat: 6.5244, lng: 3.3792, accuracy: null };
-      setLocation(loc);
-      locationRef.current = loc;
-      setEnv(e => ({ ...e, gps: 'Unknown' }));
-      fetchWeatherCoords(loc.lat, loc.lng);
+      setLocation({ lat: null, lng: null, accuracy: null });
+      setEnv(e => ({ ...e, gps: 'Location permission required' }));
     };
-    navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000 });
-    navigator.geolocation.watchPosition(success, fail, { enableHighAccuracy: true, maximumAge: 30000 });
+
+    navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    locationWatchRef.current = navigator.geolocation.watchPosition(success, fail, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
+
+    return () => {
+      if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    };
   }, []);
 
   async function fetchWeatherCoords(lat: number, lng: number) {
     const d = await apiFetch<any>(`/api/map/context?lat=${lat}&lng=${lng}`);
-    if (!d?.weather || d.weather.status !== 'available') return;
+    if (!d) return;
     const w = d.weather;
-    const temp = w.temperature !== null ? Math.round(w.temperature) : null;
-    const feelsLike = w.apparentTemperature !== null ? Math.round(w.apparentTemperature) : null;
-    const precip = Number(w.precipitation || 0);
-    const wind = Number(w.windSpeed || 0);
-    const humidity = Number(w.humidity || 0);
+    const aq = d.airQuality;
+    const temp = w?.temperature !== null && w?.temperature !== undefined ? Math.round(w.temperature) : null;
+    const feelsLike = w?.apparentTemperature !== null && w?.apparentTemperature !== undefined ? Math.round(w.apparentTemperature) : null;
+    const precip = Number(w?.precipitation || 0);
+    const wind = Number(w?.windSpeed || 0);
 
-    // Use actual description from Geoapify if available, else derive from data
-    let weatherLabel = w.description || '';
+    let weatherLabel = w?.description || '';
     if (!weatherLabel) {
       if (precip >= 5) weatherLabel = 'Heavy Rain';
       else if (precip >= 0.5) weatherLabel = 'Rain';
@@ -189,26 +190,22 @@ export function useVedaApp() {
       else if (temp !== null && temp >= 32) weatherLabel = 'Hot';
       else if (temp !== null && temp <= 5) weatherLabel = 'Very Cold';
       else if (temp !== null && temp <= 13) weatherLabel = 'Cold';
-      else if (humidity >= 85) weatherLabel = 'Humid';
       else weatherLabel = 'Clear';
     }
 
-    // Air quality from humidity as rough proxy when AQ API unavailable
-    let airLabel = 'Good';
-    if (humidity >= 90) airLabel = 'Humid';
-    else if (wind >= 40) airLabel = 'Dusty';
-    else if (precip > 2) airLabel = 'Fresh';
+    const airLabel = aq?.status === 'available'
+      ? `AQI ${aq.aqi ?? '--'} · ${aq.label || 'Unknown'}`
+      : 'AQI unavailable';
 
     setEnv(e => ({
       ...e,
       temp: temp !== null ? `${temp}°C${feelsLike !== null && feelsLike !== temp ? ` / ${feelsLike}°` : ''}` : '--',
       air: airLabel,
-      weather: weatherLabel || 'Clear',
+      weather: weatherLabel,
       outsideTemp: temp,
     }));
   }
 
-  // Telemetry
   const sendTelemetry = useCallback(async () => {
     if (backendStatus !== 'online') return;
     const d = await apiFetch<Analysis>('/api/analyze', {
@@ -224,7 +221,7 @@ export function useVedaApp() {
           supplementalOxygen: vitals.supplementalOxygen,
         },
         symptoms: vitals.consciousness === 'new_confusion' ? ['confusion'] : [],
-        environment: { outsideTemp: env.outsideTemp, weather: env.weather },
+        environment: { outsideTemp: env.outsideTemp, weather: env.weather, airQuality: env.air },
       }),
     });
     if (d) setAnalysis(d);
@@ -237,15 +234,13 @@ export function useVedaApp() {
     return () => { if (telemetryRef.current) clearInterval(telemetryRef.current); };
   }, [backendStatus, sendTelemetry]);
 
-  // History from Neon
   const fetchHistory = useCallback(async () => {
-    const d = await apiFetch<BiometricEvent[]>('/api/wellness-history?days=7');
+    const d = await apiFetch<BiometricEvent[]>('/api/wellness-history?days=30');
     if (d) setHistory(d);
   }, []);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // Save biometric
   const saveBiometric = useCallback(async (type: string, value: number, unit: string, metadata: Record<string, unknown> = {}) => {
     await apiFetch('/api/biometric-event', {
       method: 'POST',
@@ -257,19 +252,12 @@ export function useVedaApp() {
   const setVital = useCallback((key: keyof Vitals, value: number | boolean | Vitals['consciousness'], source: string) => {
     setVitals(v => ({ ...v, [key]: value }));
     if (key in sources) setSources(s => ({ ...s, [key]: source }));
-  }, []);
+  }, [sources]);
 
   const ingestRawBiometric = useCallback(async (metricType: 'HEART_RATE' | 'SPO2' | 'RESP_RATE' | 'RR_INTERVAL', value: number, unit: string, metadata: Record<string, unknown> = {}) => {
     await apiFetch('/api/raw-biometrics', {
       method: 'POST',
-      body: JSON.stringify({
-        patient_id: actor.patientId,
-        timestamp: new Date().toISOString(),
-        metric_type: metricType,
-        value,
-        unit,
-        metadata,
-      }),
+      body: JSON.stringify({ patient_id: actor.patientId, timestamp: new Date().toISOString(), metric_type: metricType, value, unit, metadata }),
     });
   }, [actor.patientId]);
 
@@ -285,9 +273,8 @@ export function useVedaApp() {
     });
   }, [profile?.waterTarget, setVital, saveBiometric]);
 
-  // Wellness score from real vitals only
   const wellnessScore = (() => {
-    if (!Object.values(vitals).some(v => v !== null)) return null;
+    if (!Object.entries(vitals).some(([k, v]) => k !== 'supplementalOxygen' && v !== null)) return null;
     let score = 70;
     if (vitals.heartRate !== null) score += vitals.heartRate < 50 || vitals.heartRate > 120 ? -18 : vitals.heartRate > 100 ? -8 : 8;
     if (vitals.oxygen !== null) score += Math.min(10, Math.max(-25, (vitals.oxygen - 94) * 3));
@@ -301,7 +288,6 @@ export function useVedaApp() {
     setProfileState(prev => {
       const base: Profile = prev ?? { name: '', age: 25, weight: 70, height: 170, sex: 'male', waterTarget: 2500, stepGoal: 10000, tempUnit: 'C' };
       const next = { ...base, ...p };
-      // Recalculate water target from weight if weight changed
       if (p.weight && p.weight > 20) next.waterTarget = Math.round(p.weight * 35);
       localStorage.setItem('veda_profile', JSON.stringify(next));
       return next;
@@ -310,9 +296,8 @@ export function useVedaApp() {
 
   return {
     vitals, sources, env, location, analysis, history, backendStatus,
-    actor, canCreateVitals: canCreateVitals(actor.role),
-    wellnessScore, profile, steps, setStepsState, sleepHours, setSleepHours,
-    stepStatus, enableStepTracking: startSteps,
+    actor, canCreateVitals: canCreateVitals(actor.role), wellnessScore, profile,
+    steps, setStepsState, sleepHours, setSleepHours, stepStatus, enableStepTracking: startSteps,
     hydrationMl, logWater, setVital, ingestRawBiometric, saveBiometric, fetchHistory, saveProfile, sendTelemetry,
   };
 }
