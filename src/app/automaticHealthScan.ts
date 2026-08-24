@@ -20,10 +20,14 @@ export function useAutomaticHealthScan({ enabled, onHeartRate, onBreathRate }: O
   const cooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMotionRef = useRef(0);
 
+  const startBreathAfterHeart = useCallback(() => {
+    setState('measuring-breath');
+  }, []);
+
   const handleHeart = useCallback((bpm: number, confidence: HRConfidence, quality?: Partial<HRResult>) => {
     onHeartRate(bpm, confidence, quality || {});
-    setState('measuring-breath');
-  }, [onHeartRate]);
+    startBreathAfterHeart();
+  }, [onHeartRate, startBreathAfterHeart]);
 
   const handleBreath = useCallback((bpm: number) => {
     onBreathRate(bpm);
@@ -56,6 +60,13 @@ export function useAutomaticHealthScan({ enabled, onHeartRate, onBreathRate }: O
     setState('measuring-heart');
     await heart.start();
   }, [enabled, state, heart.start]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (state === 'measuring-breath' && heart.state === 'done' && breath.state === 'idle') {
+      breath.start();
+    }
+  }, [enabled, state, heart.state, breath.state, breath.start]);
 
   useEffect(() => {
     if (!enabled) {
