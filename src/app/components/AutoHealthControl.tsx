@@ -13,41 +13,26 @@ export function AutoHealthControl({ app }: { app: VedaApp }) {
     onHeartRate: (bpm, confidence, quality) => {
       app.setVital('heartRate', bpm, 'Automatic camera rPPG');
       app.saveBiometric('heart_rate', bpm, 'beats/min', {
-        source: 'camera_rppg',
-        acquisition: 'automatic',
-        confidence,
-        signalQuality: quality.signalQuality,
-        snrDb: quality.snrDb,
-        sampleRateHz: quality.sampleRateHz,
+        source: 'camera_rppg', acquisition: 'automatic', confidence,
+        signalQuality: quality.signalQuality, snrDb: quality.snrDb, sampleRateHz: quality.sampleRateHz,
       });
       app.ingestRawBiometric('HEART_RATE', bpm, 'beats/min', {
-        source: 'camera_rppg',
-        acquisition: 'automatic',
-        confidence,
-        signalQuality: quality.signalQuality,
-        snrDb: quality.snrDb,
+        source: 'camera_rppg', acquisition: 'automatic', confidence,
+        signalQuality: quality.signalQuality, snrDb: quality.snrDb,
       });
     },
     onBreathRate: (bpm) => {
       app.setVital('respiratory', bpm, 'Automatic microphone analysis');
-      app.saveBiometric('breath_rate', bpm, 'breaths/min', {
-        source: 'microphone',
-        acquisition: 'automatic',
-      });
-      app.ingestRawBiometric('RESP_RATE', bpm, 'breaths/min', {
-        source: 'microphone',
-        acquisition: 'automatic',
-      });
+      app.saveBiometric('breath_rate', bpm, 'breaths/min', { source: 'microphone', acquisition: 'automatic' });
+      app.ingestRawBiometric('RESP_RATE', bpm, 'breaths/min', { source: 'microphone', acquisition: 'automatic' });
     },
   });
 
   useEffect(() => {
     localStorage.setItem('veda_auto_scan', String(enabled));
+    if (enabled) scan.start();
+    else scan.stop();
   }, [enabled]);
-
-  const toggle = () => {
-    setEnabled(v => !v);
-  };
 
   const statusText = !enabled
     ? 'Automatic scan is off'
@@ -72,7 +57,7 @@ export function AutoHealthControl({ app }: { app: VedaApp }) {
             <div style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>VEEDA automatic health check</div>
             <div style={{ color: C.muted, fontSize: 10, lineHeight: 1.35 }}>{statusText}</div>
           </div>
-          <button type="button" onClick={toggle} aria-pressed={enabled} style={{ minWidth: 74, minHeight: 42, border: 0, borderRadius: 12, cursor: 'pointer', background: enabled ? C.teal : 'rgba(255,255,255,0.08)', color: enabled ? '#04342C' : C.text, fontWeight: 800, fontSize: 11 }}>
+          <button type="button" onClick={() => setEnabled(v => !v)} aria-pressed={enabled} style={{ minWidth: 74, minHeight: 42, border: 0, borderRadius: 12, cursor: 'pointer', background: enabled ? C.teal : 'rgba(255,255,255,0.08)', color: enabled ? '#04342C' : C.text, fontWeight: 800, fontSize: 11 }}>
             {enabled ? 'ON' : 'OFF'}
           </button>
         </div>
