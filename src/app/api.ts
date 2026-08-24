@@ -14,7 +14,8 @@ export function getActor() {
 }
 
 export function canCreateVitals(role: VedaRole) {
-  return role === 'nurse' || role === 'attending' || role === 'system_admin';
+  // Patients can create measurements only for themselves; the backend enforces the patient scope.
+  return role === 'patient' || role === 'nurse' || role === 'attending' || role === 'system_admin';
 }
 
 export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T | null> {
