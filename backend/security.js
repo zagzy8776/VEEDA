@@ -15,7 +15,8 @@ export function canAccessPatient(actor, patientId, action = 'READ', wardId = nul
   if (!patientId) return true;
   if (actor.role === 'system_admin' || actor.role === 'admin' || actor.role === 'attending') return true;
   if (actor.role === 'nurse') return Boolean(actor.wardId && (!wardId || String(actor.wardId) === String(wardId)));
-  if (actor.role === 'patient') return action === 'READ' && String(actor.patientId) === String(patientId);
+  // Patients may read and create measurements for themselves, but never write another patient's data.
+  if (actor.role === 'patient') return ['READ', 'CREATE'].includes(action) && String(actor.patientId) === String(patientId);
   return false;
 }
 
@@ -39,7 +40,7 @@ export const RBAC_MATRIX = {
     scope: 'assigned_ward',
   },
   patient: {
-    biometric_events: ['READ'],
+    biometric_events: ['READ', 'CREATE'],
     clinical_scores: ['READ'],
     audit_logs: [],
     scope: 'self',
