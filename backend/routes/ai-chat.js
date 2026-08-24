@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { audit } from '../security.js';
 import { getBiometricContext } from '../clinical-context.js';
 
 const router = Router();
-const modelName = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-const model = genAI ? genAI.getGenerativeModel({ model: modelName }) : null;
+const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const cerebrasModel = process.env.CEREBRAS_MODEL || 'gpt-oss-120b';
+const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
-const SYSTEM_PROMPT = `You are VEEDA Clinical Decision Support Agent — an AI clinical assistant trained on NHS Early Warning Score (NEWS2) and qSOFA protocols.
+const SYSTEM_PROMPT = `You are VEEDA Clinical Decision Support Agent — an AI clinical assistant trained on NEWS2 and qSOFA protocols.
 
 ROLE:
 - You are a Clinical Decision Support Agent, not a substitute for a clinician.
@@ -60,37 +60,66 @@ function buildClinicalContext({ vitals, analysis, context }) {
   return parts.join('\n');
 }
 
+async function callOpenAICompatible(url, apiKey, model, system, user) {
+  if (!apiKey) return null;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.2,
+      max_tokens: 900,
+    }),
+  });
+  if (!r.ok) throw new Error(`${model} HTTP ${r.status}`);
+  const data = await r.json();
+  return data?.choices?.[0]?.message?.content?.trim() || null;
+}
+
 router.post('/ai-chat', async (req, res) => {
   const { message, vitals = {}, analysis = null } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
-  // Never accept the patient's display name as the clinical identifier.
   const patientId = req.actor?.patientId;
-  if (!patientId) return res.status(403).json({ error: 'Authenticated patient context is required' });
+  if (!patientId || patientId === 'anonymous') return res.status(403).json({ error: 'Authenticated patient context is required' });
 
   let context = { available: false, promptBlock: '', summaries: [] };
   try { context = await getBiometricContext({ tenantId: req.actor.tenantId, patientId, hours: 24 }); } catch (err) { console.error('Failed to fetch biometric context:', err.message); }
 
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context });
-  const fullPrompt = `${SYSTEM_PROMPT}\n\nHere is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}`;
+  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}`;
 
-  if (model) {
+  const providers = [
+    { name: 'cerebras', url: CEREBRAS_API_URL, key: process.env.CEREBRAS_API_KEY, model: cerebrasModel },
+    { name: 'groq', url: GROQ_API_URL, key: process.env.GROQ_API_KEY, model: groqModel },
+  ];
+
+  for (const provider of providers) {
+    if (!provider.key) continue;
     try {
-      const result = await model.generateContent(fullPrompt);
-      const reply = result.response?.text?.();
-      if (reply?.trim()) {
-        await audit(req, 'READ', patientId, { resource: 'ai_chat', contextAvailable: context.available, model: modelName });
-        return res.json({ conversationReply: reply.trim(), source: 'ai', model: modelName, biometricContext: context.promptBlock });
+      const reply = await callOpenAICompatible(provider.url, provider.key, provider.model, SYSTEM_PROMPT, userPrompt);
+      if (reply) {
+        await audit(req, 'READ', patientId, { resource: 'ai_chat', contextAvailable: context.available, provider: provider.name, model: provider.model });
+        return res.json({ conversationReply: reply, source: 'ai', provider: provider.name, model: provider.model, biometricContext: context.promptBlock });
       }
     } catch (err) {
-      console.error(`Gemini ${modelName} chat error:`, err.message);
+      console.error(`${provider.name} chat error:`, err.message);
     }
   }
 
   const { clinicalChatReply } = await import('../clinical-context.js');
   const reply = clinicalChatReply({ message, vitals, analysis, context });
-  await audit(req, 'READ', patientId, { resource: 'clinical_chat_fallback', contextAvailable: context.available, aiConfigured: Boolean(model), model: modelName });
-  res.json({ conversationReply: reply, source: 'rule', model: modelName, biometricContext: context.promptBlock });
+  await audit(req, 'READ', patientId, {
+    resource: 'clinical_chat_fallback',
+    contextAvailable: context.available,
+    cerebrasConfigured: Boolean(process.env.CEREBRAS_API_KEY),
+    groqConfigured: Boolean(process.env.GROQ_API_KEY),
+  });
+  return res.json({ conversationReply: reply, source: 'rule', biometricContext: context.promptBlock });
 });
 
 export default router;
