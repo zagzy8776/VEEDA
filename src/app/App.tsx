@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { BottomNav, type Route } from './components/BottomNav';
 import { HomePage } from './components/HomePage';
 import { Onboarding } from './components/Onboarding';
+import { AutoHealthControl } from './components/AutoHealthControl';
 import { useVedaApp, isFirstLaunch } from './useVedaApp';
 import { LoginGateway } from './components/LoginGateway';
 
@@ -23,9 +24,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     return { hasError: true };
   }
   render() {
-    if (this.state.hasError) {
-      return null;
-    }
+    if (this.state.hasError) return null;
     return this.props.children;
   }
 }
@@ -52,9 +51,7 @@ export default function App() {
     setOnboarded(true);
   }
 
-  if (!onboarded) {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
+  if (!onboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
 
   if (!institutionalReady) {
     return <LoginGateway onContinue={() => {
@@ -80,53 +77,27 @@ export default function App() {
         borderRight: emergencyMode ? '2px solid rgba(226,75,74,0.7)' : '0.5px solid rgba(255,255,255,0.04)',
         boxShadow: emergencyMode ? '0 0 0 4px rgba(226,75,74,0.22), 0 0 90px rgba(226,75,74,0.22)' : '0 0 80px rgba(0,0,0,0.5)',
       }}>
-        <Header
-          wellnessScore={app.wellnessScore}
-          status={app.backendStatus}
-          riskLevel={app.analysis?.riskLevel ?? null}
-        />
+        <Header wellnessScore={app.wellnessScore} status={app.backendStatus} riskLevel={app.analysis?.riskLevel ?? null} />
 
         <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ErrorBoundary>
-          <Suspense fallback={<LoadingPane />}>
-            <AnimatePresence mode="wait" initial={false}>
-              {route === 'home' && (
-                <div key="home" style={{ position: 'absolute', inset: 0 }}>
-                  <HomePage app={app} onOpenChat={() => setChatOpen(true)} />
-                </div>
-              )}
-              {route === 'vitals' && (
-                <div key="vitals" style={{ position: 'absolute', inset: 0 }}>
-                  <VitalsPage app={app} />
-                </div>
-              )}
-              {route === 'map' && (
-                <div key="map" style={{ position: 'absolute', inset: 0 }}>
-                  <MapPage location={app.location} />
-                </div>
-              )}
-              {route === 'history' && (
-                <div key="history" style={{ position: 'absolute', inset: 0 }}>
-                  <HistoryPage history={app.history} onRefresh={app.fetchHistory} />
-                </div>
-              )}
-              {route === 'clinician' && showClinical && (
-                <div key="clinician" style={{ position: 'absolute', inset: 0 }}>
-                  <ClinicianDashboard history={app.history} />
-                </div>
-              )}
-              {route === 'profile' && (
-                <div key="profile" style={{ position: 'absolute', inset: 0 }}>
-                  <ProfilePage profile={app.profile!} saveProfile={app.saveProfile} />
-                </div>
-              )}
-            </AnimatePresence>
-          </Suspense>
+            <Suspense fallback={<LoadingPane />}>
+              <AnimatePresence mode="wait" initial={false}>
+                {route === 'home' && <div key="home" style={{ position: 'absolute', inset: 0 }}><HomePage app={app} onOpenChat={() => setChatOpen(true)} /></div>}
+                {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
+                {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} /></div>}
+                {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
+                {route === 'clinician' && showClinical && <div key="clinician" style={{ position: 'absolute', inset: 0 }}><ClinicianDashboard history={app.history} /></div>}
+                {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} /></div>}
+              </AnimatePresence>
+            </Suspense>
           </ErrorBoundary>
         </main>
 
         <BottomNav route={route} onNavigate={setRoute} showClinical={showClinical} />
       </div>
+
+      <AutoHealthControl app={app} />
 
       <Suspense fallback={null}>
         {chatOpen && (
