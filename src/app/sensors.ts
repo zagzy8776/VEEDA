@@ -189,7 +189,9 @@ function robustRppgEstimate(rgb: RGB[], timestampsMs: number[]): HRResult {
   if (!segmentResults.length) return { bpm: 0, confidence: 'low', signalQuality: 0, snrDb: -Infinity, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
   segmentResults.sort((a, b) => b.quality - a.quality);
   const best = segmentResults[0];
-  const confidence: HRConfidence = best.quality >= 0.65 ? 'high' : best.quality >= 0.35 ? 'moderate' : 'low';
+  // Slightly more forgiving moderate threshold for real-world mobile conditions,
+  // while still rejecting low-quality signals so we never show unverified numbers.
+  const confidence: HRConfidence = best.quality >= 0.60 ? 'high' : best.quality >= 0.28 ? 'moderate' : 'low';
   if (confidence === 'low') return { bpm: 0, confidence, signalQuality: best.quality, snrDb: best.snrDb, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
   return { bpm: best.bpm, confidence, signalQuality: best.quality, snrDb: best.snrDb, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
 }
@@ -298,7 +300,16 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
     stop();
     const result = robustRppgEstimate(rgbRef.current, tsRef.current);
     if (result.bpm > 0 && result.confidence !== 'low') { setState('done'); onResult(result.bpm, result.confidence, result); }
-    else { setState('error'); setError('The camera captured frames, but VEEDA could not verify a stable pulse pattern. Keep the fingertip covering the rear lens, keep still, and use steady light. VEEDA will not report an unverified heart rate.'); }
+    else {
+      setState('error');
+      setError(
+        'We could not get a clear reading. Please try again:\n' +
+        '• Cover the rear camera completely with your fingertip\n' +
+        '• Hold still for the full 30 seconds\n' +
+        '• Use steady indoor light (torch will turn on if available)\n' +
+        'VEEDA only shows verified readings.'
+      );
+    }
   }
 
   function reset() { stop(); setState('idle'); setCountdown(HR_WINDOW_SECONDS); setProgress(0); setWaveform([]); setError(''); }
@@ -353,7 +364,23 @@ export function useBreathRate(onResult: (bpm: number) => void) {
       const capture = () => { if (!analyserRef.current) return; const elapsed = (performance.now() - startRef.current) / 1000; if (elapsed >= 30) { finish(); return; } setProgress(elapsed / 30 * 100); setCountdown(Math.max(0, Math.ceil(30 - elapsed))); const buf = new Uint8Array(analyserRef.current.fftSize); analyserRef.current.getByteTimeDomainData(buf); let sum = 0; for (const q of buf) { const v = (q - 128) / 128; sum += v * v; } const rms = Math.sqrt(sum / buf.length); samplesRef.current.push({ t: performance.now() - startRef.current, v: rms }); setWaveform(prev => [...prev.slice(-100), rms * 300]); frameRef.current = requestAnimationFrame(capture); }; frameRef.current = requestAnimationFrame(capture);
     } catch (e: any) { stop(); setState('error'); setError(e?.name === 'NotAllowedError' ? 'Microphone permission denied. Please allow microphone access.' : e?.message === 'MEDIA_UNAVAILABLE' ? 'This browser does not support microphone access.' : 'Microphone could not be started. Check browser permissions.'); }
   }, [stop]);
-  function finish() { stop(); const bpm = calcBreathRate(samplesRef.current); if (bpm > 0) { setState('done'); onResult(bpm); } else { setState('error'); setError('Microphone is working, but VEEDA could not verify a stable breathing pattern. Keep the phone near your face in a quiet environment and breathe naturally.'); } }
+  function finish() {
+    stop();
+    const bpm = calcBreathRate(samplesRef.current);
+    if (bpm > 0) {
+      setState('done');
+      onResult(bpm);
+    } else {
+      setState('error');
+      setError(
+        'We could not get a clear breathing reading. Please try again:\n' +
+        '• Hold the phone near your mouth or nose\n' +
+        '• Stay in a quiet place\n' +
+        '• Breathe naturally for the full 30 seconds\n' +
+        'VEEDA only shows verified readings.'
+      );
+    }
+  }
   function reset() { stop(); setState('idle'); setCountdown(30); setProgress(0); setWaveform([]); setError(''); }
   return { state, countdown, progress, waveform, error, start, stop, reset };
 }

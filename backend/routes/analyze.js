@@ -46,24 +46,33 @@ router.post('/analyze', async (req, res) => {
     sensorControl,
   });
 
+  // Consumer-friendly language (no clinical jargon on the home screen)
   res.json({
     riskLevel,
     headline: riskLevel === 'Urgent'
-      ? 'Clinical warning score is elevated. Escalate for clinician review.'
+      ? 'Your readings need attention. Please rest and seek help if you feel unwell.'
       : riskLevel === 'Watch'
-      ? 'Some vitals need attention. Continue monitoring and review clinically.'
-      : 'Clinical warning score is currently low.',
-    nurseGreeting: `Current VEEDA risk level is ${riskLevel.toLowerCase()}.`,
+      ? 'Some readings are outside the usual range. Keep monitoring.'
+      : 'Your readings look within a typical range.',
+    nurseGreeting: riskLevel === 'Urgent'
+      ? 'Please take care and consider contacting a healthcare professional.'
+      : riskLevel === 'Watch'
+      ? 'A few values are elevated — rest and check again soon.'
+      : 'Looking good. Keep tracking your wellness.',
     natureContext: environment.weather
       ? `Outside it is ${environment.outsideTemp ?? '--'}°C and ${environment.weather}.`
       : null,
     supportCheck: missing.size
-      ? `VEEDA is collecting available sensor data. Missing clinical parameters: ${[...missing].join(', ')}.`
-      : 'All required NEWS2/qSOFA observations are present.',
-    safetyNotice: riskLevel === 'Urgent' ? 'Escalate according to the local clinical protocol.' : null,
-    stabilizationSteps: riskLevel !== 'Stable' ? ['Sit or lie down', 'Breathe slowly'] : [],
-    warningSigns: ['Chest pain', 'Difficulty breathing', 'Confusion'],
-    nextAction: riskLevel === 'Urgent' ? 'Escalate to clinical staff now.' : sensorControl.actions.length ? 'Allow VEEDA to collect available measurements, then review the updated score.' : 'Continue monitoring vitals.',
+      ? `Measure more vitals for a fuller picture. Still needed: ${[...missing].join(', ')}.`
+      : 'You have a complete set of readings.',
+    safetyNotice: riskLevel === 'Urgent' ? 'If you feel chest pain, severe shortness of breath, or confusion, seek emergency care.' : null,
+    stabilizationSteps: riskLevel !== 'Stable' ? ['Sit or lie down', 'Breathe slowly', 'Drink water if you can'] : [],
+    warningSigns: ['Chest pain', 'Difficulty breathing', 'Confusion', 'Fainting'],
+    nextAction: riskLevel === 'Urgent'
+      ? 'Rest and contact a healthcare professional if symptoms worsen.'
+      : sensorControl.actions.length
+      ? 'Complete a heart rate or breathing check for a better score.'
+      : 'Continue monitoring your vitals.',
     emergencyMode: riskLevel === 'Urgent',
     clinicalScores: { news2, qsofa },
     sensorControl,

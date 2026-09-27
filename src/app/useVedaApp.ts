@@ -208,6 +208,17 @@ export function useVedaApp() {
 
   const sendTelemetry = useCallback(async () => {
     if (backendStatus !== 'online') return;
+    // Only analyze when at least one real vital exists — avoids fake "Stable / 70"
+    const hasAnyVital =
+      vitals.heartRate != null ||
+      vitals.respiratory != null ||
+      vitals.oxygen != null ||
+      vitals.skinTemp != null ||
+      vitals.systolicBp != null;
+    if (!hasAnyVital) {
+      setAnalysis(null);
+      return;
+    }
     const d = await apiFetch<Analysis>('/api/analyze', {
       method: 'POST',
       body: JSON.stringify({
@@ -273,14 +284,44 @@ export function useVedaApp() {
     });
   }, [profile?.waterTarget, setVital, saveBiometric]);
 
+  // Wellness score: only computed when we have at least one core vital.
+  // Base is neutral (55) so incomplete data does not look "healthy by default".
   const wellnessScore = (() => {
-    if (!Object.entries(vitals).some(([k, v]) => k !== 'supplementalOxygen' && v !== null)) return null;
-    let score = 70;
-    if (vitals.heartRate !== null) score += vitals.heartRate < 50 || vitals.heartRate > 120 ? -18 : vitals.heartRate > 100 ? -8 : 8;
-    if (vitals.oxygen !== null) score += Math.min(10, Math.max(-25, (vitals.oxygen - 94) * 3));
-    if (vitals.respiratory !== null) score += vitals.respiratory < 10 || vitals.respiratory > 24 ? -12 : 6;
-    if (vitals.hydration !== null) score += vitals.hydration < 45 ? -15 : vitals.hydration > 70 ? 8 : 0;
-    if (vitals.skinTemp !== null) score += vitals.skinTemp > 37.8 || vitals.skinTemp < 35.5 ? -15 : 6;
+    const coreKeys: (keyof Vitals)[] = ['heartRate', 'respiratory', 'oxygen', 'skinTemp'];
+    const hasCore = coreKeys.some(k => vitals[k] !== null && vitals[k] !== undefined);
+    if (!hasCore) return null; // show "—" until real measurements exist
+
+    let score = 55; // neutral baseline (not 70)
+    let contributors = 0;
+
+    if (vitals.heartRate !== null) {
+      contributors++;
+      if (vitals.heartRate < 50 || vitals.heartRate > 120) score -= 18;
+      else if (vitals.heartRate > 100) score -= 8;
+      else score += 12;
+    }
+    if (vitals.oxygen !== null) {
+      contributors++;
+      score += Math.min(12, Math.max(-25, (vitals.oxygen - 94) * 3));
+    }
+    if (vitals.respiratory !== null) {
+      contributors++;
+      if (vitals.respiratory < 10 || vitals.respiratory > 24) score -= 12;
+      else score += 8;
+    }
+    if (vitals.skinTemp !== null) {
+      contributors++;
+      if (vitals.skinTemp > 37.8 || vitals.skinTemp < 35.5) score -= 15;
+      else score += 8;
+    }
+    if (vitals.hydration !== null) {
+      if (vitals.hydration < 45) score -= 12;
+      else if (vitals.hydration > 70) score += 6;
+    }
+
+    // Slight penalty when only one vital is available (incomplete picture)
+    if (contributors < 2) score = Math.min(score, 62);
+
     return Math.max(0, Math.min(100, Math.round(score)));
   })();
 

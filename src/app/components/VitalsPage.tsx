@@ -76,7 +76,7 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Heart Rate</div>
-            <div style={{ fontSize: 12, color: C.muted }}>Camera rPPG · 30 seconds</div>
+            <div style={{ fontSize: 12, color: C.muted }}>Camera measurement · 30 seconds</div>
           </div>
           <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center', color: C.muted }}>
             <X size={16} />
@@ -111,7 +111,7 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 
         {state === 'error' && (
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
-            <div style={{ fontSize: 13, color: C.red, marginBottom: 16, lineHeight: 1.5 }}>{error}</div>
+            <div style={{ fontSize: 13, color: C.red, marginBottom: 16, lineHeight: 1.55, whiteSpace: 'pre-line', textAlign: 'left' }}>{error}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { reset(); start(); }} style={{ flex: 1, padding: '12px', background: C.teal, color: '#04342C', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Try Again</button>
               <button onClick={onClose} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.07)', color: C.text, borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
@@ -172,7 +172,7 @@ function BRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 
         {state === 'error' && (
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
-            <div style={{ fontSize: 13, color: C.red, marginBottom: 16, lineHeight: 1.5 }}>{error}</div>
+            <div style={{ fontSize: 13, color: C.red, marginBottom: 16, lineHeight: 1.55, whiteSpace: 'pre-line', textAlign: 'left' }}>{error}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { reset(); start(); }} style={{ flex: 1, padding: '12px', background: C.teal, color: '#04342C', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Try Again</button>
               <button onClick={onClose} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.07)', color: C.text, borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>

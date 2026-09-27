@@ -10,12 +10,25 @@ interface HeaderProps {
 
 export function Header({ wellnessScore, status, riskLevel }: HeaderProps) {
   const s = {
-    online:   { bg: 'rgba(45,212,164,0.12)', border: 'rgba(45,212,164,0.25)', text: C.teal,    dot: C.teal,    label: 'VEDA active' },
-    checking: { bg: 'rgba(239,159,39,0.12)', border: 'rgba(239,159,39,0.25)', text: C.amber,   dot: C.amber,   label: 'Starting...' },
-    failed:   { bg: 'rgba(226,75,74,0.12)',  border: 'rgba(226,75,74,0.25)',  text: '#E24B4A', dot: '#E24B4A', label: 'Offline'     },
+    online:   { bg: 'rgba(45,212,164,0.12)', border: 'rgba(45,212,164,0.25)', text: C.teal,    dot: C.teal,    label: 'Online' },
+    checking: { bg: 'rgba(239,159,39,0.12)', border: 'rgba(239,159,39,0.25)', text: C.amber,   dot: C.amber,   label: 'Connecting...' },
+    failed:   { bg: 'rgba(226,75,74,0.12)',  border: 'rgba(226,75,74,0.25)',  text: '#E24B4A', dot: '#E24B4A', label: 'Offline' },
   }[status];
 
-  const riskColor = riskLevel === 'Urgent' ? '#E24B4A' : riskLevel === 'Watch' ? C.amber : C.teal;
+  // Only show risk badge when we have a real score or a non-default risk
+  const showRisk =
+    wellnessScore !== null ||
+    (riskLevel != null && riskLevel !== 'Stable');
+
+  const riskColor =
+    riskLevel === 'Urgent' ? '#E24B4A' :
+    riskLevel === 'Watch' ? C.amber :
+    C.teal;
+
+  const riskLabel =
+    riskLevel === 'Urgent' ? 'Needs attention' :
+    riskLevel === 'Watch' ? 'Watch' :
+    wellnessScore !== null ? 'Good' : null;
 
   return (
     <header style={{
@@ -42,9 +55,9 @@ export function Header({ wellnessScore, status, riskLevel }: HeaderProps) {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0, animation: status === 'online' ? 'vedaPulse 2s ease-in-out infinite' : 'none' }} />
           {s.label}
         </div>
-        {riskLevel && (
+        {showRisk && riskLabel && (
           <div style={{ padding: '6px 12px', borderRadius: 14, background: `${riskColor}18`, border: `0.5px solid ${riskColor}40`, fontSize: 11, fontWeight: 700, color: riskColor }}>
-            {wellnessScore !== null ? `${wellnessScore} · ` : ''}{riskLevel}
+            {wellnessScore !== null ? `${wellnessScore} · ` : ''}{riskLabel}
           </div>
         )}
       </div>
