@@ -67,16 +67,25 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
     { icon: MapPin, color: C.red, value: env.gps, label: 'GPS' },
   ];
 
-  // Notices from real analysis
+  // Notices from real analysis / environment
   const notices = [];
-  if (!Object.values(vitals).some(v => v !== null)) {
+  const hasMeasured =
+    vitals.heartRate != null ||
+    vitals.respiratory != null ||
+    vitals.oxygen != null ||
+    vitals.skinTemp != null ||
+    vitals.systolicBp != null ||
+    (vitals.hydration != null && vitals.hydration > 0);
+  if (!hasMeasured) {
     notices.push({ type: 'info', icon: Info, title: 'No measurements yet', desc: 'Open the Vitals tab to check heart rate with your camera, breathing with the mic, or log water and temperature.' });
   }
-  if (analysis?.supportCheck) {
+  if (hasMeasured && analysis?.supportCheck) {
     notices.push({ type: analysis.riskLevel === 'Urgent' || analysis.riskLevel === 'Watch' ? 'warning' : 'info', icon: analysis.riskLevel === 'Watch' || analysis.riskLevel === 'Urgent' ? AlertTriangle : Info, title: analysis.headline, desc: analysis.supportCheck });
   }
   if (env.outsideTemp !== null) {
-    notices.push({ type: 'info', icon: Info, title: 'Environment synced', desc: `${env.weather} · ${env.temp} outside · Air ${env.air}` });
+    notices.push({ type: 'info', icon: Info, title: 'Environment detected', desc: `${env.weather} · ${env.temp} outside · ${env.air}` });
+  } else if (env.gps && env.gps.startsWith('Active')) {
+    notices.push({ type: 'info', icon: Info, title: 'Locating environment', desc: 'GPS is active. Outside temperature and weather will appear in a moment.' });
   }
 
   return (
@@ -149,8 +158,8 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>VEDA Notices</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {notices.length === 0 && (
-              <div style={{ fontSize: 12, color: C.muted, padding: '12px 0' }}>All vitals within normal range. VEDA is watching quietly.</div>
+            {notices.length === 0 && hasMeasured && (
+              <div style={{ fontSize: 12, color: C.muted, padding: '12px 0' }}>Your latest readings look steady. Keep checking in as needed.</div>
             )}
             {notices.map((n, i) => {
               const color = n.type === 'warning' ? C.amber : C.teal;

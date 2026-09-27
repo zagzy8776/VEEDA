@@ -211,16 +211,82 @@ export function useVedaApp() {
   }, []);
 
   async function fetchWeatherCoords(lat: number, lng: number) {
-    const d = await apiFetch<any>(`/api/map/context?lat=${lat}&lng=${lng}`);
-    if (!d) return;
-    const w = d.weather;
-    const aq = d.airQuality;
-    const temp = w?.temperature !== null && w?.temperature !== undefined ? Math.round(w.temperature) : null;
-    const feelsLike = w?.apparentTemperature !== null && w?.apparentTemperature !== undefined ? Math.round(w.apparentTemperature) : null;
-    const precip = Number(w?.precipitation || 0);
-    const wind = Number(w?.windSpeed || 0);
+    // Prefer backend (keyed). If it fails or temp is missing, fall back to Open-Meteo from the phone.
+    let w: any = null;
+    let aq: any = null;
 
-    let weatherLabel = w?.description || '';
+    const d = await apiFetch<any>(`/api/map/context?lat=${lat}&lng=${lng}`);
+    if (d) {
+      w = d.weather;
+      aq = d.airQuality;
+    }
+
+    let temp =
+      w?.temperature != null && Number.isFinite(Number(w.temperature))
+        ? Math.round(Number(w.temperature))
+        : null;
+    let feelsLike =
+      w?.apparentTemperature != null && Number.isFinite(Number(w.apparentTemperature))
+        ? Math.round(Number(w.apparentTemperature))
+        : null;
+    let precip = Number(w?.precipitation || 0);
+    let wind = Number(w?.windSpeed || 0);
+    let weatherLabel = (w?.description || '').trim();
+
+    // Phone-side fallback so environment still works if API key/backend is misconfigured
+    if (temp == null || w?.status === 'unavailable' || !d) {
+      try {
+        const r = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+          `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m,relative_humidity_2m,weather_code&timezone=auto`
+        );
+        if (r.ok) {
+          const om = await r.json();
+          const c = om.current || {};
+          if (c.temperature_2m != null) temp = Math.round(Number(c.temperature_2m));
+          if (c.apparent_temperature != null) feelsLike = Math.round(Number(c.apparent_temperature));
+          precip = Number(c.precipitation || precip || 0);
+          wind = Number(c.wind_speed_10m || wind || 0);
+          if (!weatherLabel && c.weather_code != null) {
+            const code = Number(c.weather_code);
+            if (code === 0) weatherLabel = 'Clear';
+            else if (code <= 3) weatherLabel = 'Partly cloudy';
+            else if (code <= 48) weatherLabel = 'Fog';
+            else if (code <= 57) weatherLabel = 'Drizzle';
+            else if (code <= 67) weatherLabel = 'Rain';
+            else if (code <= 77) weatherLabel = 'Snow';
+            else if (code <= 82) weatherLabel = 'Showers';
+            else if (code <= 99) weatherLabel = 'Thunderstorm';
+          }
+        }
+      } catch {}
+    }
+
+    // Air quality fallback
+    if (!aq || aq.status !== 'available') {
+      try {
+        const r = await fetch(
+          `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}` +
+          `&current=us_aqi,pm2_5,pm10&timezone=auto`
+        );
+        if (r.ok) {
+          const om = await r.json();
+          const c = om.current || {};
+          if (c.us_aqi != null || c.pm2_5 != null) {
+            const aqi = c.us_aqi ?? null;
+            const label =
+              aqi == null ? 'Unknown' :
+              aqi <= 50 ? 'Good' :
+              aqi <= 100 ? 'Moderate' :
+              aqi <= 150 ? 'Unhealthy for sensitive' :
+              aqi <= 200 ? 'Unhealthy' :
+              aqi <= 300 ? 'Very unhealthy' : 'Hazardous';
+            aq = { status: 'available', aqi, label, pm25: c.pm2_5 ?? null };
+          }
+        }
+      } catch {}
+    }
+
     if (!weatherLabel) {
       if (precip >= 5) weatherLabel = 'Heavy Rain';
       else if (precip >= 0.5) weatherLabel = 'Rain';
@@ -231,7 +297,8 @@ export function useVedaApp() {
       else if (temp !== null && temp >= 32) weatherLabel = 'Hot';
       else if (temp !== null && temp <= 5) weatherLabel = 'Very Cold';
       else if (temp !== null && temp <= 13) weatherLabel = 'Cold';
-      else weatherLabel = 'Clear';
+      else if (temp !== null) weatherLabel = 'Clear';
+      else weatherLabel = '--';
     }
 
     const airLabel = aq?.status === 'available'

@@ -30,32 +30,84 @@ function bboxFor(lat, lng, radiusMeters) {
 }
 
 async function fetchWeather(lat, lng) {
+  // Primary: Open-Meteo (free, reliable temperature). Do not depend on paid keys.
+  let primary = null;
+  try {
+    const r = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+      `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m,relative_humidity_2m,weather_code` +
+      `&timezone=auto`
+    );
+    if (r.ok) {
+      const d = await r.json();
+      const c = d.current || {};
+      const code = c.weather_code;
+      const description = weatherCodeToLabel(code);
+      if (c.temperature_2m != null || c.apparent_temperature != null) {
+        primary = {
+          status: 'available',
+          source: 'open-meteo',
+          temperature: c.temperature_2m ?? null,
+          apparentTemperature: c.apparent_temperature ?? null,
+          humidity: c.relative_humidity_2m ?? null,
+          windSpeed: c.wind_speed_10m ?? null,
+          precipitation: c.precipitation ?? null,
+          description,
+          weatherCode: code ?? null,
+          observedAt: c.time ?? null,
+        };
+      }
+    }
+  } catch {}
+
+  // Optional enrichment from Geoapify if configured (never block on it)
   const geoKey = process.env.GEOAPIFY_API_KEY;
   if (geoKey) {
     try {
       const r = await fetch(`https://api.geoapify.com/v1/weather?lat=${lat}&lon=${lng}&apiKey=${geoKey}`);
-      const d = await r.json();
-      const c = d?.properties?.current;
-      if (c) return {
-        status: 'available', source: 'geoapify',
-        temperature: c.temperature ?? null, apparentTemperature: c.feelsLike ?? null,
-        humidity: c.humidity ?? null, windSpeed: c.windSpeed ?? null,
-        precipitation: c.precipitation ?? null, description: c.description || null,
-        observedAt: new Date().toISOString(),
-      };
+      if (r.ok) {
+        const d = await r.json();
+        const c = d?.properties?.current || d?.current || {};
+        const temp = c.temperature ?? c.temp ?? c.temperature_2m ?? null;
+        const feels = c.feelsLike ?? c.apparent_temperature ?? c.feels_like ?? null;
+        if (primary) {
+          // Fill only missing fields
+          if (primary.temperature == null && temp != null) primary.temperature = temp;
+          if (primary.apparentTemperature == null && feels != null) primary.apparentTemperature = feels;
+          if (!primary.description && (c.description || c.summary)) primary.description = c.description || c.summary;
+        } else if (temp != null) {
+          primary = {
+            status: 'available',
+            source: 'geoapify',
+            temperature: temp,
+            apparentTemperature: feels,
+            humidity: c.humidity ?? null,
+            windSpeed: c.windSpeed ?? c.wind_speed ?? null,
+            precipitation: c.precipitation ?? null,
+            description: c.description || c.summary || null,
+            observedAt: new Date().toISOString(),
+          };
+        }
+      }
     } catch {}
   }
-  try {
-    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m,relative_humidity_2m&timezone=auto`);
-    const d = await r.json();
-    const c = d.current || {};
-    return {
-      status: 'available', source: 'open-meteo',
-      temperature: c.temperature_2m ?? null, apparentTemperature: c.apparent_temperature ?? null,
-      humidity: c.relative_humidity_2m ?? null, windSpeed: c.wind_speed_10m ?? null,
-      precipitation: c.precipitation ?? null, description: null, observedAt: c.time ?? null,
-    };
-  } catch { return { status: 'unavailable' }; }
+
+  return primary || { status: 'unavailable' };
+}
+
+function weatherCodeToLabel(code) {
+  if (code == null || !Number.isFinite(Number(code))) return null;
+  const c = Number(code);
+  if (c === 0) return 'Clear';
+  if (c <= 3) return 'Partly cloudy';
+  if (c <= 48) return 'Fog';
+  if (c <= 57) return 'Drizzle';
+  if (c <= 67) return 'Rain';
+  if (c <= 77) return 'Snow';
+  if (c <= 82) return 'Showers';
+  if (c <= 86) return 'Snow showers';
+  if (c <= 99) return 'Thunderstorm';
+  return null;
 }
 
 async function fetchAirQuality(lat, lng) {
