@@ -96,7 +96,7 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
             <div style={{ marginTop: 16 }}>
               <Waveform data={waveform} color={C.red} />
             </div>
-            <Tip msg="Camera-based rPPG estimate. Accuracy varies by lighting, motion, and device. Not a medical device." />
+            <Tip msg="Estimate only — not a medical device. VEEDA rejects unclear signals instead of guessing." />
           </>
         )}
 
@@ -295,7 +295,7 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 </span>
               </button>
             </div>
-            <Tip msg="Heart rate: cover the rear camera with your fingertip. Breathing: hold the phone near your mouth in a quiet place. Steps: may need a tap to allow motion on iPhone." />
+            <Tip msg="Heart rate is estimated from your fingertip on the rear camera — not a clinical ECG. If the signal is unclear, VEEDA shows no number rather than a guess. Breathing uses the mic; steps use motion sensors." />
           </div>
 
           {/* Bio cards */}

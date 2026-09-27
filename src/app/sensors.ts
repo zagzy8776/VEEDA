@@ -177,7 +177,7 @@ function robustRppgEstimate(rgb: RGB[], timestampsMs: number[]): HRResult {
     for (let s = 0; s + segmentLength <= channel.length; s += segmentLength) {
       local.push(estimateSegment(channel.slice(s, s + segmentLength), HR_CAPTURE_HZ));
     }
-    const good = local.filter(x => x.bpm > 0 && x.quality >= 0.25);
+    const good = local.filter(x => x.bpm > 0 && x.quality >= 0.30);
     if (good.length >= 2) {
       const medBpm = median(good.map(x => x.bpm));
       const agreement = good.filter(x => Math.abs(x.bpm - medBpm) <= 8).length / good.length;
@@ -186,14 +186,51 @@ function robustRppgEstimate(rgb: RGB[], timestampsMs: number[]): HRResult {
     }
   }
 
-  if (!segmentResults.length) return { bpm: 0, confidence: 'low', signalQuality: 0, snrDb: -Infinity, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  if (!segmentResults.length) {
+    return { bpm: 0, confidence: 'low', signalQuality: 0, snrDb: -Infinity, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
+
+  // Accuracy-first: require agreement across independent optical channels.
+  // A single noisy channel must never invent a heart rate.
   segmentResults.sort((a, b) => b.quality - a.quality);
   const best = segmentResults[0];
-  // Slightly more forgiving moderate threshold for real-world mobile conditions,
-  // while still rejecting low-quality signals so we never show unverified numbers.
-  const confidence: HRConfidence = best.quality >= 0.60 ? 'high' : best.quality >= 0.28 ? 'moderate' : 'low';
-  if (confidence === 'low') return { bpm: 0, confidence, signalQuality: best.quality, snrDb: best.snrDb, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
-  return { bpm: best.bpm, confidence, signalQuality: best.quality, snrDb: best.snrDb, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  const agreeing = segmentResults.filter(x => Math.abs(x.bpm - best.bpm) <= 8);
+  if (agreeing.length < 2) {
+    return { bpm: 0, confidence: 'low', signalQuality: best.quality * 0.5, snrDb: best.snrDb, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
+
+  const consensusBpm = Math.round(median(agreeing.map(x => x.bpm)));
+  const consensusQuality = median(agreeing.map(x => x.quality));
+  const consensusSnr = median(agreeing.map(x => x.snrDb));
+
+  // Reject weak spectral peaks (prefer no number over a wrong number).
+  if (!Number.isFinite(consensusSnr) || consensusSnr < 3.5) {
+    return { bpm: 0, confidence: 'low', signalQuality: consensusQuality, snrDb: consensusSnr, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
+
+  // Physiological plausibility for resting/ambulatory phone checks
+  if (consensusBpm < HR_MIN_BPM || consensusBpm > HR_MAX_BPM) {
+    return { bpm: 0, confidence: 'low', signalQuality: consensusQuality, snrDb: consensusSnr, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
+
+  // Stricter confidence bands: moderate still requires usable signal.
+  const confidence: HRConfidence =
+    consensusQuality >= 0.58 && consensusSnr >= 6 ? 'high' :
+    consensusQuality >= 0.38 && consensusSnr >= 3.5 ? 'moderate' :
+    'low';
+
+  if (confidence === 'low') {
+    return { bpm: 0, confidence, signalQuality: consensusQuality, snrDb: consensusSnr, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
+
+  return {
+    bpm: consensusBpm,
+    confidence,
+    signalQuality: consensusQuality,
+    snrDb: consensusSnr,
+    sampleRateHz: HR_CAPTURE_HZ,
+    samples: uniform.length,
+  };
 }
 
 export function __testRppg(rgb: RGB[], timestampsMs: number[]) {
@@ -283,8 +320,14 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
           // Do NOT switch ROI from frame to frame. That creates artificial pulses.
           // A per-channel median keeps the aggregate stable when one ROI contains background.
           const chosen: RGB = { r: median(rois.map(x => x.r)), g: median(rois.map(x => x.g)), b: median(rois.map(x => x.b)) };
-          if (chosen.r + chosen.g + chosen.b > 35) {
-            rgbRef.current.push(chosen); tsRef.current.push(now); setWaveform(prev => [...prev.slice(-100), chosen.g]);
+          // Finger-on-lens heuristic: need enough light and red/green dominance (torch + skin).
+          // Reject dark/background frames so noise never becomes a fake pulse.
+          const brightness = chosen.r + chosen.g + chosen.b;
+          const redDom = chosen.r >= chosen.b * 0.95 && chosen.g >= chosen.b * 0.85;
+          if (brightness > 45 && redDom) {
+            rgbRef.current.push(chosen);
+            tsRef.current.push(now);
+            setWaveform(prev => [...prev.slice(-100), chosen.g]);
           }
         }
         frameRef.current = requestAnimationFrame(captureFrame);
@@ -298,16 +341,31 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
 
   function finish() {
     stop();
-    const result = robustRppgEstimate(rgbRef.current, tsRef.current);
-    if (result.bpm > 0 && result.confidence !== 'low') { setState('done'); onResult(result.bpm, result.confidence, result); }
-    else {
+    // Need enough accepted finger-on-lens frames (~10s+ of good contact at 30 Hz)
+    if (rgbRef.current.length < 240) {
       setState('error');
       setError(
-        'We could not get a clear reading. Please try again:\n' +
-        '• Cover the rear camera completely with your fingertip\n' +
+        'Not enough clear camera frames.\n' +
+        '• Cover the rear camera fully with your fingertip\n' +
+        '• Keep the torch light under your finger\n' +
         '• Hold still for the full 30 seconds\n' +
-        '• Use steady indoor light (torch will turn on if available)\n' +
-        'VEEDA only shows verified readings.'
+        'VEEDA will not invent a heart rate.'
+      );
+      return;
+    }
+    const result = robustRppgEstimate(rgbRef.current, tsRef.current);
+    // Accuracy-first: never report low-confidence or zero BPM
+    if (result.bpm > 0 && result.confidence !== 'low') {
+      setState('done');
+      onResult(result.bpm, result.confidence, result);
+    } else {
+      setState('error');
+      setError(
+        'Signal was not clear enough for a reliable reading.\n' +
+        '• Cover the rear camera completely with your fingertip\n' +
+        '• Hold completely still for 30 seconds\n' +
+        '• Use steady indoor light\n' +
+        'VEEDA only reports verified pulse patterns — never estimated guesses.'
       );
     }
   }
@@ -396,12 +454,24 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
     try {
       const DME = DeviceMotionEvent as typeof DeviceMotionEvent & { requestPermission?: () => Promise<string> };
       if (DME.requestPermission) { setStatus('requesting'); const p = await DME.requestPermission(); if (p !== 'granted') { setStatus('denied'); return; } }
+      // Peak-based step detection: count a step only on a clear impact peak,
+      // not every small motion (reduces fake steps while sitting/driving).
       handlerRef.current = (e: DeviceMotionEvent) => {
         if (!listeningRef.current) return;
-        const a = e.accelerationIncludingGravity; if (!a) return;
+        const a = e.accelerationIncludingGravity;
+        if (!a) return;
         const mag = Math.sqrt((a.x || 0) ** 2 + (a.y || 0) ** 2 + (a.z || 0) ** 2);
-        const delta = Math.abs(mag - lastMagnitudeRef.current); lastMagnitudeRef.current = mag;
-        const now = Date.now(); if (delta > 1.15 && now - lastStepTimeRef.current > 350) { lastStepTimeRef.current = now; stepsRef.current += 1; onStep(stepsRef.current); }
+        const prev = lastMagnitudeRef.current;
+        lastMagnitudeRef.current = mag;
+        const now = Date.now();
+        // Typical walk impact: rise then fall around gravity (~9.8). Require
+        // sufficient peak height and minimum interval (~2.5 steps/sec max).
+        const rising = mag - prev;
+        if (rising > 1.8 && mag > 11.2 && now - lastStepTimeRef.current > 380) {
+          lastStepTimeRef.current = now;
+          stepsRef.current += 1;
+          onStep(stepsRef.current);
+        }
       };
       listeningRef.current = true; window.addEventListener('devicemotion', handlerRef.current, { passive: true }); setStatus('listening');
     } catch { setStatus('permission_required'); }
