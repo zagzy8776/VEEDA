@@ -488,39 +488,164 @@ export function useBreathRate(onResult: (bpm: number) => void) {
 }
 
 export type StepStatus = 'idle' | 'requesting' | 'listening' | 'permission_required' | 'unsupported' | 'denied';
+
+/**
+ * Walking step counter (phone in hand / pocket).
+ * Designed to ignore sitting, typing, and light phone handling.
+ *
+ * Method:
+ * - Prefer linear acceleration (no gravity) when the browser provides it
+ * - Maintain a short rolling window; require elevated variance (real gait)
+ * - Detect peaks above a dynamic threshold
+ * - Enforce walking cadence (about 0.7–2.2 steps/sec)
+ * - Require a short burst of consistent peaks before counting (anti false-start)
+ */
 export function useStepCounter(onStep: (total: number) => void, initialTotal = 0) {
   const [status, setStatus] = useState<StepStatus>('idle');
-  const stepsRef = useRef(initialTotal), listeningRef = useRef(false), lastMagnitudeRef = useRef(0), lastStepTimeRef = useRef(0);
+  const stepsRef = useRef(initialTotal);
+  const listeningRef = useRef(false);
   const handlerRef = useRef<((e: DeviceMotionEvent) => void) | null>(null);
+
+  // Rolling signal state
+  const magWindowRef = useRef<number[]>([]);
+  const peakTimesRef = useRef<number[]>([]);
+  const lastPeakMagRef = useRef(0);
+  const lastSampleMagRef = useRef(0);
+  const pendingRef = useRef(0); // peaks waiting for cadence confirmation
+  const lastCountedPeakRef = useRef(0);
+
   const start = useCallback(async () => {
     if (listeningRef.current) return;
-    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) { setStatus('unsupported'); return; }
+    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
+      setStatus('unsupported');
+      return;
+    }
     try {
       const DME = DeviceMotionEvent as typeof DeviceMotionEvent & { requestPermission?: () => Promise<string> };
-      if (DME.requestPermission) { setStatus('requesting'); const p = await DME.requestPermission(); if (p !== 'granted') { setStatus('denied'); return; } }
-      // Peak-based step detection: count a step only on a clear impact peak,
-      // not every small motion (reduces fake steps while sitting/driving).
+      if (DME.requestPermission) {
+        setStatus('requesting');
+        const p = await DME.requestPermission();
+        if (p !== 'granted') {
+          setStatus('denied');
+          return;
+        }
+      }
+
+      magWindowRef.current = [];
+      peakTimesRef.current = [];
+      pendingRef.current = 0;
+      lastPeakMagRef.current = 0;
+      lastSampleMagRef.current = 0;
+      lastCountedPeakRef.current = 0;
+
       handlerRef.current = (e: DeviceMotionEvent) => {
         if (!listeningRef.current) return;
-        const a = e.accelerationIncludingGravity;
-        if (!a) return;
-        const mag = Math.sqrt((a.x || 0) ** 2 + (a.y || 0) ** 2 + (a.z || 0) ** 2);
-        const prev = lastMagnitudeRef.current;
-        lastMagnitudeRef.current = mag;
+
+        // Linear acceleration is far less sensitive to tilting while sitting.
+        const lin = e.acceleration;
+        const grav = e.accelerationIncludingGravity;
+        let mag = 0;
+        if (lin && (lin.x != null || lin.y != null || lin.z != null)) {
+          mag = Math.sqrt((lin.x || 0) ** 2 + (lin.y || 0) ** 2 + (lin.z || 0) ** 2);
+        } else if (grav) {
+          // Remove approximate gravity (~9.8) from total acceleration magnitude
+          const gMag = Math.sqrt((grav.x || 0) ** 2 + (grav.y || 0) ** 2 + (grav.z || 0) ** 2);
+          mag = Math.abs(gMag - 9.8);
+        } else {
+          return;
+        }
+
         const now = Date.now();
-        // Typical walk impact: rise then fall around gravity (~9.8). Require
-        // sufficient peak height and minimum interval (~2.5 steps/sec max).
-        const rising = mag - prev;
-        if (rising > 1.8 && mag > 11.2 && now - lastStepTimeRef.current > 380) {
-          lastStepTimeRef.current = now;
-          stepsRef.current += 1;
+        const prev = lastSampleMagRef.current;
+        lastSampleMagRef.current = mag;
+
+        // Keep ~1.5s window at typical 20–60 Hz event rates
+        const win = magWindowRef.current;
+        win.push(mag);
+        if (win.length > 90) win.shift();
+        if (win.length < 20) return;
+
+        const mean = win.reduce((a, b) => a + b, 0) / win.length;
+        const variance = win.reduce((a, b) => a + (b - mean) ** 2, 0) / win.length;
+        const std = Math.sqrt(variance);
+
+        // Sitting / holding phone: low motion energy — do not count
+        // Typical walk variance is much higher than typing or small gestures.
+        if (std < 0.55) {
+          pendingRef.current = 0;
+          return;
+        }
+
+        // Dynamic peak threshold: must clearly exceed recent baseline
+        const threshold = Math.max(1.35, mean + 1.15 * std);
+
+        // Local peak: rose above threshold and is now falling
+        const isPeak = prev > threshold && mag < prev && prev >= lastPeakMagRef.current * 0.85;
+        if (!isPeak) return;
+
+        // Cadence limits: min 450ms (~2.2 Hz), max gap handled below
+        if (now - lastCountedPeakRef.current < 450 && lastCountedPeakRef.current > 0) return;
+        if (peakTimesRef.current.length && now - peakTimesRef.current[peakTimesRef.current.length - 1] < 450) return;
+
+        lastPeakMagRef.current = prev;
+        peakTimesRef.current.push(now);
+        // Keep last few peak times for cadence check
+        if (peakTimesRef.current.length > 6) peakTimesRef.current.shift();
+
+        // Require rhythmic walking: at least 3 peaks with intervals 450–1400ms
+        const times = peakTimesRef.current;
+        if (times.length >= 3) {
+          const i1 = times[times.length - 1] - times[times.length - 2];
+          const i2 = times[times.length - 2] - times[times.length - 3];
+          const rhythmic =
+            i1 >= 450 && i1 <= 1400 &&
+            i2 >= 450 && i2 <= 1400 &&
+            Math.abs(i1 - i2) < 550;
+
+          if (!rhythmic) {
+            // Single jolt (pick up phone, put down) — ignore
+            pendingRef.current = 0;
+            return;
+          }
+
+          // Count this peak as a step (and flush any confirmed pending)
+          const toAdd = 1 + pendingRef.current;
+          pendingRef.current = 0;
+          stepsRef.current += toAdd;
+          lastCountedPeakRef.current = now;
           onStep(stepsRef.current);
+        } else {
+          // Not enough history yet — hold as pending, don't count alone
+          pendingRef.current = Math.min(2, pendingRef.current + 1);
         }
       };
-      listeningRef.current = true; window.addEventListener('devicemotion', handlerRef.current, { passive: true }); setStatus('listening');
-    } catch { setStatus('permission_required'); }
+
+      listeningRef.current = true;
+      window.addEventListener('devicemotion', handlerRef.current, { passive: true });
+      setStatus('listening');
+    } catch {
+      setStatus('permission_required');
+    }
   }, [onStep]);
-  const stop = useCallback(() => { listeningRef.current = false; if (handlerRef.current) { window.removeEventListener('devicemotion', handlerRef.current); handlerRef.current = null; } setStatus('idle'); }, []);
-  const reset = useCallback(() => { stepsRef.current = 0; lastMagnitudeRef.current = 0; lastStepTimeRef.current = 0; }, []);
+
+  const stop = useCallback(() => {
+    listeningRef.current = false;
+    if (handlerRef.current) {
+      window.removeEventListener('devicemotion', handlerRef.current);
+      handlerRef.current = null;
+    }
+    setStatus('idle');
+  }, []);
+
+  const reset = useCallback(() => {
+    stepsRef.current = 0;
+    magWindowRef.current = [];
+    peakTimesRef.current = [];
+    pendingRef.current = 0;
+    lastPeakMagRef.current = 0;
+    lastSampleMagRef.current = 0;
+    lastCountedPeakRef.current = 0;
+  }, []);
+
   return { start, stop, reset, status };
 }
