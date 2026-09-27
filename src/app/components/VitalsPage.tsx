@@ -214,17 +214,19 @@ export function VitalsPage({ app }: { app: VedaApp }) {
   }, [history]);
 
   function handleHRResult(bpm: number, confidence: string) {
-    setVital('heartRate', bpm, 'Camera (rPPG)');
-    saveBiometric('heart_rate', bpm, 'beats/min', { confidence });
-    ingestRawBiometric('HEART_RATE', bpm, 'beats/min', { source: 'camera_rppg', confidence });
-    setShowHR(false);
+    setVital('heartRate', bpm, 'Phone camera');
+    // Save in background — do not block UI if network is slow/offline
+    saveBiometric('heart_rate', bpm, 'beats/min', { confidence }).catch(() => {});
+    ingestRawBiometric('HEART_RATE', bpm, 'beats/min', { source: 'camera_rppg', confidence }).catch(() => {});
+    // Let the success screen show briefly before closing
+    setTimeout(() => setShowHR(false), 1200);
   }
 
   function handleBRResult(bpm: number) {
-    setVital('respiratory', bpm, 'Microphone');
-    saveBiometric('breath_rate', bpm, '/min');
-    ingestRawBiometric('RESP_RATE', bpm, '/min', { source: 'microphone' });
-    setShowBR(false);
+    setVital('respiratory', bpm, 'Phone microphone');
+    saveBiometric('breath_rate', bpm, '/min').catch(() => {});
+    ingestRawBiometric('RESP_RATE', bpm, '/min', { source: 'microphone' }).catch(() => {});
+    setTimeout(() => setShowBR(false), 1200);
   }
 
   function saveTemp() {
@@ -268,12 +270,12 @@ export function VitalsPage({ app }: { app: VedaApp }) {
 
           <div style={{ paddingTop: 22, paddingBottom: 4 }}>
             <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, lineHeight: 1 }}>Vitals</h2>
-            <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Biometric tracking — phone sensors</p>
+            <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Check yourself with your phone</p>
           </div>
 
           {/* Measure Hub */}
           <div style={{ margin: '16px 0', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 12 }}>Measure Now</div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 12 }}>Measure now</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
               <button onClick={() => canWriteVitals && setShowHR(true)} disabled={!canWriteVitals} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '14px 8px', background: vitals.heartRate ? 'rgba(226,75,74,0.1)' : '#0A1220', border: `0.5px solid ${vitals.heartRate ? C.red : C.border}`, borderRadius: 14, color: C.text, cursor: canWriteVitals ? 'pointer' : 'default', opacity: canWriteVitals ? 1 : 0.55 }}>
                 <Camera size={22} style={{ color: C.red }} strokeWidth={1.8} />
@@ -293,7 +295,7 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 </span>
               </button>
             </div>
-            <Tip msg="Heart rate uses rear camera rPPG. Breath rate uses microphone. Steps use motion sensors and may require a tap to enable on iPhone." />
+            <Tip msg="Heart rate: cover the rear camera with your fingertip. Breathing: hold the phone near your mouth in a quiet place. Steps: may need a tap to allow motion on iPhone." />
           </div>
 
           {/* Bio cards */}
@@ -306,7 +308,7 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 <span style={{ fontSize: 10, color: C.muted }}>bpm</span>
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.muted }}>Heart Rate</div>
-              <div style={{ fontSize: 10, color: vitals.heartRate ? C.teal : C.muted, marginTop: 4 }}>{vitals.heartRate ? (canWriteVitals ? 'Camera (rPPG) · Tap to remeasure' : 'Camera (rPPG)') : (canWriteVitals ? 'Tap to measure' : 'No reading')}</div>
+              <div style={{ fontSize: 10, color: vitals.heartRate ? C.teal : C.muted, marginTop: 4 }}>{vitals.heartRate ? (canWriteVitals ? 'Phone camera · Tap to remeasure' : 'Phone camera') : (canWriteVitals ? 'Tap to measure' : 'No reading')}</div>
             </div>
 
             <div style={{ background: C.card, border: `1px solid ${vitals.respiratory ? C.blue + '40' : C.border}`, borderRadius: 18, padding: '16px 14px', cursor: canWriteVitals ? 'pointer' : 'default' }} onClick={() => canWriteVitals && setShowBR(true)}>
@@ -316,7 +318,7 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 <span style={{ fontSize: 10, color: C.muted }}>br/min</span>
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.muted }}>Breath Rate</div>
-              <div style={{ fontSize: 10, color: vitals.respiratory ? C.teal : C.muted, marginTop: 4 }}>{vitals.respiratory ? (canWriteVitals ? 'Microphone · Tap to remeasure' : 'Microphone') : (canWriteVitals ? 'Tap to measure' : 'No reading')}</div>
+              <div style={{ fontSize: 10, color: vitals.respiratory ? C.teal : C.muted, marginTop: 4 }}>{vitals.respiratory ? (canWriteVitals ? 'Phone mic · Tap to remeasure' : 'Phone mic') : (canWriteVitals ? 'Tap to measure' : 'No reading')}</div>
             </div>
 
             {/* Hydration */}

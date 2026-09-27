@@ -95,19 +95,60 @@ function loadProfile(): Profile | null {
   return null;
 }
 
+const EMPTY_VITALS: Vitals = {
+  heartRate: null,
+  respiratory: null,
+  oxygen: null,
+  stamina: null,
+  hydration: null,
+  skinTemp: null,
+  systolicBp: null,
+  supplementalOxygen: false,
+  consciousness: 'alert',
+};
+
+const EMPTY_SOURCES: VitalSources = {
+  heartRate: 'none',
+  respiratory: 'none',
+  oxygen: 'unavailable',
+  stamina: 'unavailable',
+  hydration: 'none',
+  skinTemp: 'manual entry only',
+  systolicBp: 'manual entry',
+};
+
+/** Restore last phone measurements so refresh does not wipe them. */
+function loadCachedVitals(): { vitals: Vitals; sources: VitalSources } {
+  try {
+    const raw = localStorage.getItem('veda_latest_vitals');
+    if (!raw) return { vitals: { ...EMPTY_VITALS }, sources: { ...EMPTY_SOURCES } };
+    const parsed = JSON.parse(raw);
+    // Expire after 24h so stale readings do not stick forever
+    if (parsed.savedAt && Date.now() - parsed.savedAt > 24 * 60 * 60 * 1000) {
+      return { vitals: { ...EMPTY_VITALS }, sources: { ...EMPTY_SOURCES } };
+    }
+    return {
+      vitals: { ...EMPTY_VITALS, ...(parsed.vitals || {}) },
+      sources: { ...EMPTY_SOURCES, ...(parsed.sources || {}) },
+    };
+  } catch {
+    return { vitals: { ...EMPTY_VITALS }, sources: { ...EMPTY_SOURCES } };
+  }
+}
+
+function persistVitals(vitals: Vitals, sources: VitalSources) {
+  try {
+    localStorage.setItem(
+      'veda_latest_vitals',
+      JSON.stringify({ vitals, sources, savedAt: Date.now() }),
+    );
+  } catch {}
+}
+
 export function useVedaApp() {
-  const [vitals, setVitals] = useState<Vitals>({
-    heartRate: null,
-    respiratory: null,
-    oxygen: null,
-    stamina: null,
-    hydration: null,
-    skinTemp: null,
-    systolicBp: null,
-    supplementalOxygen: false,
-    consciousness: 'alert',
-  });
-  const [sources, setSources] = useState<VitalSources>({ heartRate: 'none', respiratory: 'none', oxygen: 'unavailable', stamina: 'unavailable', hydration: 'none', skinTemp: 'manual entry only', systolicBp: 'manual entry' });
+  const cached = loadCachedVitals();
+  const [vitals, setVitals] = useState<Vitals>(cached.vitals);
+  const [sources, setSources] = useState<VitalSources>(cached.sources);
   const [env, setEnv] = useState<EnvData>({ temp: '--', air: '--', weather: '--', gps: 'Acquiring GPS', outsideTemp: null });
   const [location, setLocation] = useState<Location>({ lat: null, lng: null, accuracy: null });
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -247,12 +288,46 @@ export function useVedaApp() {
 
   const fetchHistory = useCallback(async () => {
     const d = await apiFetch<BiometricEvent[]>('/api/wellness-history?days=30');
-    if (d) setHistory(d);
+    if (!d || !Array.isArray(d)) return;
+    setHistory(d);
+
+    // Fill empty on-screen vitals from the latest server readings (today preferred)
+    const today = new Date().toDateString();
+    const latestOf = (type: string) => {
+      const todayHit = d.find(e => e.type === type && new Date(e.timestamp).toDateString() === today);
+      if (todayHit) return todayHit;
+      return d.find(e => e.type === type) || null;
+    };
+    const hr = latestOf('heart_rate');
+    const br = latestOf('breath_rate');
+    const temp = latestOf('temperature');
+    const bp = latestOf('systolic_bp');
+
+    setVitals(v => {
+      const next = { ...v };
+      let changed = false;
+      if (v.heartRate == null && hr) { next.heartRate = Number(hr.value); changed = true; }
+      if (v.respiratory == null && br) { next.respiratory = Number(br.value); changed = true; }
+      if (v.skinTemp == null && temp) { next.skinTemp = Number(temp.value); changed = true; }
+      if (v.systolicBp == null && bp) { next.systolicBp = Number(bp.value); changed = true; }
+      if (!changed) return v;
+      setSources(s => {
+        const ns = { ...s };
+        if (v.heartRate == null && hr) ns.heartRate = 'Saved reading';
+        if (v.respiratory == null && br) ns.respiratory = 'Saved reading';
+        if (v.skinTemp == null && temp) ns.skinTemp = 'Saved reading';
+        if (v.systolicBp == null && bp) ns.systolicBp = 'Saved reading';
+        persistVitals(next, ns);
+        return ns;
+      });
+      return next;
+    });
   }, []);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   const saveBiometric = useCallback(async (type: string, value: number, unit: string, metadata: Record<string, unknown> = {}) => {
+    // Local UI already updated via setVital — backend save is best-effort
     await apiFetch('/api/biometric-event', {
       method: 'POST',
       body: JSON.stringify({ type, value, unit, timestamp: new Date().toISOString(), metadata }),
@@ -261,9 +336,16 @@ export function useVedaApp() {
   }, [fetchHistory]);
 
   const setVital = useCallback((key: keyof Vitals, value: number | boolean | Vitals['consciousness'], source: string) => {
-    setVitals(v => ({ ...v, [key]: value }));
-    if (key in sources) setSources(s => ({ ...s, [key]: source }));
-  }, [sources]);
+    setVitals(v => {
+      const next = { ...v, [key]: value };
+      setSources(s => {
+        const nextSources = key in s ? { ...s, [key]: source } : s;
+        persistVitals(next, nextSources as VitalSources);
+        return nextSources;
+      });
+      return next;
+    });
+  }, []);
 
   const ingestRawBiometric = useCallback(async (metricType: 'HEART_RATE' | 'SPO2' | 'RESP_RATE' | 'RR_INTERVAL', value: number, unit: string, metadata: Record<string, unknown> = {}) => {
     await apiFetch('/api/raw-biometrics', {

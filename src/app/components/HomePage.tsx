@@ -55,11 +55,9 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
 
   const vitalItems = [
     { id: 'hr', icon: Heart, color: C.red, label: 'Heart rate', value: vitals.heartRate, unit: 'bpm', pct: vitals.heartRate ? Math.min(100, (vitals.heartRate / 200) * 100) : 0, source: sources.heartRate },
-    { id: 'resp', icon: Wind, color: C.blue, label: 'Respiratory', value: vitals.respiratory, unit: 'br/min', pct: vitals.respiratory ? Math.min(100, (vitals.respiratory / 40) * 100) : 0, source: sources.respiratory },
-    { id: 'spo2', icon: Droplets, color: C.teal, label: 'Oxygen', value: vitals.oxygen, unit: '%', pct: vitals.oxygen ?? 0, source: sources.oxygen },
-    { id: 'stamina', icon: Zap, color: C.amber, label: 'Stamina', value: vitals.stamina, unit: '%', pct: vitals.stamina ?? 0, source: sources.stamina },
+    { id: 'resp', icon: Wind, color: C.blue, label: 'Breathing', value: vitals.respiratory, unit: 'br/min', pct: vitals.respiratory ? Math.min(100, (vitals.respiratory / 40) * 100) : 0, source: sources.respiratory },
     { id: 'hydration', icon: Droplet, color: C.blue, label: 'Hydration', value: vitals.hydration, unit: '%', pct: vitals.hydration ?? 0, source: sources.hydration },
-    { id: 'temp', icon: Thermometer, color: C.teal, label: 'Skin temp', value: vitals.skinTemp, unit: '°C', pct: vitals.skinTemp ? Math.min(100, ((vitals.skinTemp - 35) / 5) * 100) : 0, source: sources.skinTemp },
+    { id: 'temp', icon: Thermometer, color: C.teal, label: 'Temperature', value: vitals.skinTemp, unit: '°C', pct: vitals.skinTemp ? Math.min(100, ((vitals.skinTemp - 35) / 5) * 100) : 0, source: sources.skinTemp },
   ];
 
   const envItems = [
@@ -72,7 +70,7 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
   // Notices from real analysis
   const notices = [];
   if (!Object.values(vitals).some(v => v !== null)) {
-    notices.push({ type: 'info', icon: Info, title: 'No measurements yet', desc: 'Go to Vitals tab to measure your heart rate, breathing, log water or enter temperature.' });
+    notices.push({ type: 'info', icon: Info, title: 'No measurements yet', desc: 'Open the Vitals tab to check heart rate with your camera, breathing with the mic, or log water and temperature.' });
   }
   if (analysis?.supportCheck) {
     notices.push({ type: analysis.riskLevel === 'Urgent' || analysis.riskLevel === 'Watch' ? 'warning' : 'info', icon: analysis.riskLevel === 'Watch' || analysis.riskLevel === 'Urgent' ? AlertTriangle : Info, title: analysis.headline, desc: analysis.supportCheck });
@@ -123,7 +121,7 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
                   </span>
                   <span style={{ fontSize: 10, color: C.muted }}>{item.unit}</span>
                 </div>
-                <div style={{ fontSize: 10, color: C.muted, marginBottom: 10 }}>{item.source === 'none' ? 'Not measured' : item.source}</div>
+                <div style={{ fontSize: 10, color: C.muted, marginBottom: 10 }}>{!item.value && (item.source === 'none' || item.source === 'unavailable' || !item.source) ? 'Tap Vitals to measure' : (item.source || '')}</div>
                 <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                   <motion.div initial={{ width: 0 }} animate={{ width: `${item.pct}%` }} transition={{ delay: 0.3, duration: 0.8 }}
                     style={{ height: '100%', borderRadius: 2, background: item.color }} />
