@@ -163,7 +163,10 @@ function robustRppgEstimate(rgb: RGB[], timestampsMs: number[]): HRResult {
   const rMean = mean(uniform.map(x => x.r));
   const gMean = mean(uniform.map(x => x.g));
   const bMean = mean(uniform.map(x => x.b));
-  if (rMean < 12 || gMean < 12 || bMean < 12) return { bpm: 0, confidence: 'low', signalQuality: 0, snrDb: -Infinity, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  // Finger-over-lens can be relatively dark without torch; only reject empty frames.
+  if (rMean + gMean + bMean < 18) {
+    return { bpm: 0, confidence: 'low', signalQuality: 0, snrDb: -Infinity, sampleRateHz: HR_CAPTURE_HZ, samples: uniform.length };
+  }
 
   const pos = posPulse(uniform, HR_CAPTURE_HZ);
   const green = uniform.map(x => x.g / Math.max(1, gMean) - 1);
@@ -271,24 +274,63 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('MEDIA_UNAVAILABLE');
       let stream: MediaStream;
+      // Prefer rear camera. Torch is requested after track is live (more reliable on Android).
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 30, min: 15 },
+          },
+          audio: false,
+        });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
-      // Try the torch even when getCapabilities() is incomplete on Safari.
-      try { await track?.applyConstraints({ advanced: [{ torch: true }] } as any); } catch {}
+
+      // Turn on torch / flashlight when the device supports it (critical for fingertip PPG).
+      try {
+        const caps = typeof track.getCapabilities === 'function' ? (track.getCapabilities() as any) : {};
+        if (caps.torch) {
+          await track.applyConstraints({ advanced: [{ torch: true }] } as any);
+        } else {
+          await track.applyConstraints({ advanced: [{ torch: true }] } as any);
+        }
+      } catch {}
 
       const video = document.createElement('video');
-      video.srcObject = stream; video.setAttribute('playsinline', 'true'); video.muted = true; video.autoplay = true;
-      video.style.position = 'fixed'; video.style.opacity = '0'; video.style.pointerEvents = 'none'; video.style.width = '1px'; video.style.height = '1px'; video.style.top = '-9999px'; video.style.left = '-9999px';
-      document.body.appendChild(video); videoRef.current = video;
+      video.srcObject = stream;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.muted = true;
+      video.autoplay = true;
+      // IMPORTANT: zero-size / opacity:0 videos are often not decoded on mobile browsers,
+      // so no frames arrive and capture fails. Keep a real off-screen size.
+      video.style.position = 'fixed';
+      video.style.left = '-10000px';
+      video.style.top = '0';
+      video.style.width = '320px';
+      video.style.height = '240px';
+      video.style.opacity = '0.01';
+      video.style.pointerEvents = 'none';
+      video.style.zIndex = '-1';
+      document.body.appendChild(video);
+      videoRef.current = video;
       await video.play();
-      if (!video.videoWidth || !video.videoHeight) await new Promise<void>(resolve => video.addEventListener('loadedmetadata', () => resolve(), { once: true }));
-      const canvas = document.createElement('canvas'); canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480; canvasRef.current = canvas;
-      startTimeRef.current = performance.now(); setState('measuring');
+      if (!video.videoWidth || !video.videoHeight) {
+        await new Promise<void>(resolve => video.addEventListener('loadedmetadata', () => resolve(), { once: true }));
+      }
+      // Brief settle so auto-exposure / torch can stabilize
+      await new Promise(r => setTimeout(r, 350));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      canvasRef.current = canvas;
+      startTimeRef.current = performance.now();
+      setState('measuring');
 
       const captureFrame = () => {
         const v = videoRef.current, c = canvasRef.current;
@@ -320,11 +362,12 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
           // Do NOT switch ROI from frame to frame. That creates artificial pulses.
           // A per-channel median keeps the aggregate stable when one ROI contains background.
           const chosen: RGB = { r: median(rois.map(x => x.r)), g: median(rois.map(x => x.g)), b: median(rois.map(x => x.b)) };
-          // Finger-on-lens heuristic: need enough light and red/green dominance (torch + skin).
-          // Reject dark/background frames so noise never becomes a fake pulse.
+          // Accept fingertip frames. With torch, image is bright/red; without torch it is often dark.
+          // Only reject near-black / empty frames. Quality gating happens later in robustRppgEstimate.
           const brightness = chosen.r + chosen.g + chosen.b;
-          const redDom = chosen.r >= chosen.b * 0.95 && chosen.g >= chosen.b * 0.85;
-          if (brightness > 45 && redDom) {
+          const maxCh = Math.max(chosen.r, chosen.g, chosen.b);
+          const notBlack = brightness > 12 && maxCh > 6;
+          if (notBlack) {
             rgbRef.current.push(chosen);
             tsRef.current.push(now);
             setWaveform(prev => [...prev.slice(-100), chosen.g]);
@@ -341,31 +384,32 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
 
   function finish() {
     stop();
-    // Need enough accepted finger-on-lens frames (~10s+ of good contact at 30 Hz)
-    if (rgbRef.current.length < 240) {
+    const n = rgbRef.current.length;
+    // ~8s of samples at 30 Hz after contact. Lower than before so capture works without torch.
+    if (n < 180) {
       setState('error');
       setError(
-        'Not enough clear camera frames.\n' +
-        '• Cover the rear camera fully with your fingertip\n' +
-        '• Keep the torch light under your finger\n' +
+        'Camera did not collect enough fingertip signal.\n' +
+        '• Use the rear camera and cover the lens fully\n' +
+        '• Press gently so the image is not pitch black\n' +
+        '• Allow camera permission and keep the screen on\n' +
         '• Hold still for the full 30 seconds\n' +
-        'VEEDA will not invent a heart rate.'
+        `Frames captured: ${n}. VEEDA will not invent a heart rate.`
       );
       return;
     }
     const result = robustRppgEstimate(rgbRef.current, tsRef.current);
-    // Accuracy-first: never report low-confidence or zero BPM
     if (result.bpm > 0 && result.confidence !== 'low') {
       setState('done');
       onResult(result.bpm, result.confidence, result);
     } else {
       setState('error');
       setError(
-        'Signal was not clear enough for a reliable reading.\n' +
-        '• Cover the rear camera completely with your fingertip\n' +
-        '• Hold completely still for 30 seconds\n' +
-        '• Use steady indoor light\n' +
-        'VEEDA only reports verified pulse patterns — never estimated guesses.'
+        'Pulse pattern was not stable enough to report.\n' +
+        '• Cover the rear camera completely with one fingertip\n' +
+        '• Hold completely still (no talking or moving)\n' +
+        '• Prefer indoor light; on Android the flashlight may turn on\n' +
+        'VEEDA only reports verified readings — never guesses.'
       );
     }
   }
