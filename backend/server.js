@@ -11,6 +11,7 @@ import fhir from './routes/fhir.js';
 import rawBiometrics from './routes/raw-biometrics.js';
 import clinician from './routes/clinician.js';
 import aiChat from './routes/ai-chat.js';
+import auth from './routes/auth.js';
 import { attachActor } from './security.js';
 
 const app = express();
@@ -26,8 +27,12 @@ app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 app.use(express.json());
 app.use(attachActor);
 
+// Authentication endpoints are public so users can establish a session.
+// Existing /api routes remain protected by the legacy shared API key for now.
+app.use('/auth', auth);
+
 app.use((req, res, next) => {
-  if (req.path === '/api/health') return next();
+  if (req.path === '/api/health' || req.path.startsWith('/auth/')) return next();
   if (!configuredApiKey) return next();
   const key = req.headers['x-veda-api-key'];
   if (key !== configuredApiKey) return res.status(401).json({ error: 'Unauthorized' });
