@@ -29,6 +29,49 @@ export interface ConsentRecord {
 /** Bump when consent wording changes so old grants are re-confirmed. */
 export const CONSENT_VERSION = '1.0.0';
 
+// Maps each client feature to the feature name the server records. The server
+// set is coarser (it is about data handling, not UI sections).
+export const SERVER_FEATURE: Record<ConsentFeature, string> = {
+  health_data_processing: 'health_data',
+  shareable_summary: 'sharing',
+  medication_reminders: 'reminders',
+  bp_glucose_logging: 'health_data',
+};
+
+export interface SyncResult {
+  ok: boolean;
+  status?: number;
+}
+
+/**
+ * Mirror a local consent decision to the server-of-record. localStorage is only
+ * a cache; this call is what produces durable evidence that survives a cleared
+ * browser. Failures are non-fatal for the UI (the local record still stands and
+ * the caller may retry), so this never throws.
+ */
+export async function syncConsent(
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+  authToken: string,
+  feature: ConsentFeature,
+  granted: boolean,
+  version: string = CONSENT_VERSION,
+): Promise<SyncResult> {
+  try {
+    const response = await fetchImpl(`${baseUrl}/api/consent`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ feature: SERVER_FEATURE[feature], version, granted }),
+    });
+    return { ok: response.ok, status: response.status };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export interface ConsentItem {
   feature: ConsentFeature;
   title: string;

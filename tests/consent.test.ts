@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CONSENT_VERSION,
+  SERVER_FEATURE,
   getConsent,
   hasConsent,
   recordConsent,
+  syncConsent,
   withdrawAllConsent,
   withdrawConsent,
   type StorageLike,
@@ -37,6 +39,64 @@ test('hasConsent is false before granting and true after', () => {
   assert.equal(hasConsent(storage, USER, 'shareable_summary'), false);
   recordConsent(storage, USER, 'shareable_summary');
   assert.equal(hasConsent(storage, USER, 'shareable_summary'), true);
+});
+
+// --- server-of-record sync (localStorage is only a cache) ---
+
+test('syncConsent posts the mapped feature, version and granted flag with an auth header', async () => {
+  let seen: any = null;
+  const fakeFetch = (async (url: string, init: any) => {
+    seen = { url, init };
+    return { ok: true, status: 200 } as Response;
+  }) as unknown as typeof fetch;
+
+  const result = await syncConsent(fakeFetch, 'https://api.test', 'tok-123', 'medication_reminders', true);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 200);
+  assert.equal(seen.url, 'https://api.test/api/consent');
+  assert.equal(seen.init.method, 'POST');
+  assert.equal(seen.init.headers.authorization, 'Bearer tok-123');
+  const body = JSON.parse(seen.init.body);
+  assert.deepEqual(body, { feature: 'reminders', version: CONSENT_VERSION, granted: true });
+});
+
+test('syncConsent records withdrawal as granted:false', async () => {
+  let seen: any = null;
+  const fakeFetch = (async (_url: string, init: any) => {
+    seen = init;
+    return { ok: true, status: 200 } as Response;
+  }) as unknown as typeof fetch;
+
+  await syncConsent(fakeFetch, 'https://api.test', 'tok', 'shareable_summary', false);
+  assert.equal(JSON.parse(seen.body).granted, false);
+  assert.equal(JSON.parse(seen.body).feature, 'sharing');
+});
+
+test('syncConsent never throws when the network fails', async () => {
+  const fakeFetch = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
+  const result = await syncConsent(fakeFetch, 'https://api.test', 'tok', 'health_data_processing', true);
+  assert.equal(result.ok, false);
+});
+
+test('syncConsent reports a non-2xx response as not ok', async () => {
+  const fakeFetch = (async () => ({ ok: false, status: 503 } as Response)) as unknown as typeof fetch;
+  const result = await syncConsent(fakeFetch, 'https://api.test', 'tok', 'health_data_processing', true);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 503);
+});
+
+test('every client feature maps to a known server feature', () => {
+  const clientFeatures = Object.keys(SERVER_FEATURE);
+  assert.deepEqual(clientFeatures.sort(), [
+    'bp_glucose_logging',
+    'health_data_processing',
+    'medication_reminders',
+    'shareable_summary',
+  ]);
+  for (const value of Object.values(SERVER_FEATURE)) {
+    assert.ok(['health_data', 'sharing', 'reminders'].includes(value));
+  }
 });
 
 test('withdrawing consent removes the record', () => {
