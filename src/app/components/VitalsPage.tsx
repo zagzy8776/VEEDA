@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { VedaApp } from '../useVedaApp';
 import { useHeartRate, useBreathRate } from '../sensors';
+import { RPPG_EXPORT_CONSENT } from '../rppgResearchExport';
 
 const C = { teal: '#2DD4A4', blue: '#378ADD', amber: '#EF9F27', red: '#E24B4A', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.88)', border: 'rgba(255,255,255,0.08)' };
 
@@ -64,7 +65,8 @@ function CountdownRing({ progress, countdown, color, label }: { progress: number
 
 // Heart Rate Measurement Modal
 function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: number, conf: string) => void }) {
-  const { state, countdown, progress, waveform, error, attempts, start, stop, reset } = useHeartRate(onResult);
+  const { state, countdown, progress, waveform, error, attempts, start, stop, reset, researchEnabled, getTrace, getTraceCsv } = useHeartRate(onResult);
+  const [researchSaved, setResearchSaved] = useState(false);
 
   useEffect(() => { start(); return stop; }, [start, stop]);
 
@@ -121,6 +123,34 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
               <button onClick={() => { reset(); start(); }} style={{ flex: 1, padding: '12px', background: C.teal, color: '#04342C', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{attempts >= 3 ? 'Try Again Anyway' : 'Try Again'}</button>
               <button onClick={onClose} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.07)', color: C.text, borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
             </div>
+
+            {researchEnabled && getTrace() && (
+              <div style={{ marginTop: 16, padding: 12, border: '0.5px dashed rgba(255,255,255,0.2)', borderRadius: 12, textAlign: 'left' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.amber, marginBottom: 6 }}>Research mode</div>
+                <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 10 }}>{RPPG_EXPORT_CONSENT}</div>
+                {researchSaved ? (
+                  <div style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>Trace saved to your device. Nothing was uploaded.</div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const csv = getTraceCsv();
+                      if (!csv) return;
+                      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `rppg-trace-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+                      document.body.appendChild(a); a.click(); a.remove();
+                      setTimeout(() => URL.revokeObjectURL(url), 0);
+                      setResearchSaved(true);
+                    }}
+                    style={{ width: '100%', padding: '10px', background: 'rgba(239,159,39,0.15)', color: C.amber, borderRadius: 10, border: '0.5px solid rgba(239,159,39,0.4)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    I understand — save trace CSV
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </motion.div>

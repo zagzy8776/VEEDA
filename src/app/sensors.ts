@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
+import { buildRppgCsv, isRppgResearchEnabled, type RgbSample } from './rppgResearchExport';
 
 // Phone-camera rPPG is an estimate. It is quality-gated and must not be represented
 // as a diagnostic/medical-device measurement without external validation.
@@ -431,8 +432,25 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
     }
   }
 
+  // Research-only: expose the captured trace so an opt-in export can be built.
+  // Returns copies so callers cannot mutate capture state. This does nothing
+  // unless research mode is enabled at build time.
+  function getTrace(): { rgb: RgbSample[]; timestamps: number[] } | null {
+    if (!isRppgResearchEnabled()) return null;
+    if (rgbRef.current.length === 0) return null;
+    return { rgb: rgbRef.current.map(s => ({ ...s })), timestamps: [...tsRef.current] };
+  }
+
+  // Research-only: CSV text for the last capture (or null when unavailable).
+  // The caller is responsible for showing the consent notice before saving.
+  function getTraceCsv(): string | null {
+    const trace = getTrace();
+    if (!trace) return null;
+    return buildRppgCsv(trace.rgb, trace.timestamps);
+  }
+
   function reset() { stop(); setState('idle'); setCountdown(HR_WINDOW_SECONDS); setProgress(0); setWaveform([]); setError(''); }
-  return { state, countdown, progress, waveform, error, attempts, start, stop, reset };
+  return { state, countdown, progress, waveform, error, attempts, start, stop, reset, researchEnabled: isRppgResearchEnabled(), getTrace, getTraceCsv };
 }
 
 export type BRState = 'idle' | 'requesting' | 'measuring' | 'done' | 'error';
