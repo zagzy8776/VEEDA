@@ -246,6 +246,8 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
   const [progress, setProgress] = useState(0);
   const [waveform, setWaveform] = useState<number[]>([]);
   const [error, setError] = useState('');
+  const [attempts, setAttempts] = useState(0);
+  const attemptsRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -387,35 +389,50 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
     const n = rgbRef.current.length;
     // ~8s of samples at 30 Hz after contact. Lower than before so capture works without torch.
     if (n < 180) {
+      const failures = attemptsRef.current + 1;
+      attemptsRef.current = failures;
+      setAttempts(failures);
       setState('error');
       setError(
-        'Camera did not collect enough fingertip signal.\n' +
-        '• Use the rear camera and cover the lens fully\n' +
-        '• Press gently so the image is not pitch black\n' +
-        '• Allow camera permission and keep the screen on\n' +
-        '• Hold still for the full 30 seconds\n' +
-        `Frames captured: ${n}. VEEDA will not invent a heart rate.`
+        failures >= 3
+          ? "We couldn't get a reliable reading. If you feel unwell, check your pulse another way or get medical help."
+          : 'Camera did not collect enough fingertip signal.\n' +
+            '• Use the rear camera and cover the lens fully\n' +
+            '• Press gently so the image is not pitch black\n' +
+            '• Allow camera permission and keep the screen on\n' +
+            '• Hold still for the full 30 seconds\n' +
+            `Frames captured: ${n}. VEEDA will not invent a heart rate.`
       );
       return;
     }
     const result = robustRppgEstimate(rgbRef.current, tsRef.current);
     if (result.bpm > 0 && result.confidence !== 'low') {
+      attemptsRef.current = 0;
+      setAttempts(0);
       setState('done');
       onResult(result.bpm, result.confidence, result);
     } else {
+      const failures = attemptsRef.current + 1;
+      attemptsRef.current = failures;
+      setAttempts(failures);
       setState('error');
+      // The camera estimator can refuse a genuinely fast heart rate (e.g. fever
+      // or sepsis). After repeated failures, stop telling the user only to
+      // retry and advise an alternative measurement / medical help instead.
       setError(
-        'Pulse pattern was not stable enough to report.\n' +
-        '• Cover the rear camera completely with one fingertip\n' +
-        '• Hold completely still (no talking or moving)\n' +
-        '• Prefer indoor light; on Android the flashlight may turn on\n' +
-        'VEEDA only reports verified readings — never guesses.'
+        failures >= 3
+          ? "We couldn't get a reliable reading. If you feel unwell, check your pulse another way or get medical help."
+          : 'Pulse pattern was not stable enough to report.\n' +
+            '• Cover the rear camera completely with one fingertip\n' +
+            '• Hold completely still (no talking or moving)\n' +
+            '• Prefer indoor light; on Android the flashlight may turn on\n' +
+            'VEEDA only reports verified readings — never guesses.'
       );
     }
   }
 
   function reset() { stop(); setState('idle'); setCountdown(HR_WINDOW_SECONDS); setProgress(0); setWaveform([]); setError(''); }
-  return { state, countdown, progress, waveform, error, start, stop, reset };
+  return { state, countdown, progress, waveform, error, attempts, start, stop, reset };
 }
 
 export type BRState = 'idle' | 'requesting' | 'measuring' | 'done' | 'error';

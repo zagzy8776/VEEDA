@@ -64,7 +64,7 @@ function CountdownRing({ progress, countdown, color, label }: { progress: number
 
 // Heart Rate Measurement Modal
 function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: number, conf: string) => void }) {
-  const { state, countdown, progress, waveform, error, start, stop, reset } = useHeartRate(onResult);
+  const { state, countdown, progress, waveform, error, attempts, start, stop, reset } = useHeartRate(onResult);
 
   useEffect(() => { start(); return stop; }, [start, stop]);
 
@@ -112,8 +112,13 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
         {state === 'error' && (
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
             <div style={{ fontSize: 13, color: C.red, marginBottom: 16, lineHeight: 1.55, whiteSpace: 'pre-line', textAlign: 'left' }}>{error}</div>
+            {attempts >= 3 && (
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 12, textAlign: 'left', lineHeight: 1.5 }}>
+                The camera estimate could not be verified after {attempts} attempts. A finger on the camera cannot reliably capture a very fast pulse — use a pulse oximeter, a chest-strap, or manual pulse counting at the wrist or neck.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { reset(); start(); }} style={{ flex: 1, padding: '12px', background: C.teal, color: '#04342C', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Try Again</button>
+              <button onClick={() => { reset(); start(); }} style={{ flex: 1, padding: '12px', background: C.teal, color: '#04342C', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{attempts >= 3 ? 'Try Again Anyway' : 'Try Again'}</button>
               <button onClick={onClose} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.07)', color: C.text, borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
