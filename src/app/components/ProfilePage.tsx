@@ -35,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile, userEmail, onLogout }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void> }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
@@ -126,6 +126,19 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout }: { pro
               ))}
             </div>
           </Row>
+        </Section>
+
+        <Section title="Data">
+          <div onClick={onOpenSummary} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenSummary ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Shield size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Shareable health summary</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Create a PDF on this device</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
         </Section>
 
         <Section title="Permissions">

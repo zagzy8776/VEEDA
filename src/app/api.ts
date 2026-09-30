@@ -88,6 +88,25 @@ export function getCurrentUser(): AuthUser | null {
   return currentUser;
 }
 
+const CONSENT_SERVER_FEATURE: Record<string, string> = {
+  health_data_processing: 'health_data',
+  shareable_summary: 'sharing',
+  medication_reminders: 'reminders',
+  bp_glucose_logging: 'health_data',
+};
+
+// Mirror a local consent decision to the server-of-record (the durable record).
+// Returns true when the server accepted it; false when offline or signed out —
+// the local cache still stands, so callers should not block the UI on this.
+export async function syncConsentRecord(feature: string, version: string, granted: boolean): Promise<boolean> {
+  const serverFeature = CONSENT_SERVER_FEATURE[feature] || feature;
+  const data = await apiFetch<{ consent?: unknown }>('/api/consent', {
+    method: 'POST',
+    body: JSON.stringify({ feature: serverFeature, version, granted }),
+  });
+  return Boolean(data?.consent);
+}
+
 function jsonHeaders(opts: RequestInit): Headers {
   const headers = new Headers(opts.headers || {});
   if (!headers.has('Content-Type') && opts.body !== undefined) headers.set('Content-Type', 'application/json');
