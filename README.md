@@ -10,7 +10,7 @@ Mobile-first wellness platform for vital signs monitoring (camera heart rate, br
 ## Live URLs
 
 - Frontend: https://veeda-mu.vercel.app
-- Backend API: https://veeda.onrender.com
+- Backend API: configure the confirmed Render hostname in `vercel.json` before deployment.
 
 ## Getting Started
 
@@ -25,18 +25,17 @@ Copy `.env.example` to `.env`:
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Backend URL (https://veeda.onrender.com) |
-| `VITE_VEDA_API_KEY` | Shared API key (must match backend) |
 | `VITE_EMERGENCY_NUMBER` | Emergency number (default: 112) |
 
-Users get a private unique ID automatically. No hospital / tenant / patient ID is required.
+Local-only users can use device measurements without an account. Authenticated users are identified by the backend JWT; no hospital / tenant / patient ID is entered in the browser.
 
 ## Backend (Render)
 
 Required env vars:
 - `DATABASE_URL` — Neon PostgreSQL
-- `VEDA_API_KEY` — same key as frontend
-- `FRONTEND_URL` — https://veeda-mu.vercel.app
+- `FRONTEND_URL` — exact browser origins, comma-separated; production is `https://veeda-mu.vercel.app`, and every Vercel preview URL used for testing must also be listed.
+- `JWT_SECRET`, `JWT_ISSUER`, and `JWT_AUDIENCE` — JWT configuration
+- `ENABLE_PROXY_DEBUG` — temporary `true` only while checking `/api/admin/proxy-debug` as an admin
 - Optional: `GEOAPIFY_API_KEY`, `MAPBOX_TOKEN`
 
 ## Features

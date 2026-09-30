@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sql from '../db.js';
 import { audit, createRequireAuth } from '../security.js';
 
@@ -134,6 +134,16 @@ function loginRateLimit(keyGenerator) {
   return rateLimit(options);
 }
 
+function safeIpRateLimitKey(req) {
+  const forwardedChain = Array.isArray(req.ips) ? req.ips : [];
+  // With trust proxy=2, a valid Vercel -> Render request exposes exactly two
+  // forwarded addresses. Any longer chain may contain client-supplied values;
+  // use the immediate peer instead of allowing the client to choose a bucket.
+  if (forwardedChain.length === 2 && req.ip === forwardedChain[0]) return `ip:${ipKeyGenerator(req.ip)}`;
+  if (forwardedChain.length === 0) return `ip:${ipKeyGenerator(req.socket.remoteAddress || req.ip || 'unknown')}`;
+  return `proxy:${ipKeyGenerator(req.socket.remoteAddress || 'unknown')}`;
+}
+
 function issueRefreshToken(client, userId) {
   const { rawToken, tokenHash } = createRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
@@ -155,7 +165,7 @@ export function createAuthRouter({
 
   const router = Router();
   const authLimiter = genericRateLimit('Too many authentication requests');
-  const loginIpLimiter = loginRateLimit();
+  const loginIpLimiter = loginRateLimit(safeIpRateLimitKey);
   const loginEmailLimiter = loginRateLimit((req) => normalizeEmail(req.body?.email) || 'missing-email');
   const requireClaimAuth = createRequireAuth({ secret: jwtSecret, issuer, audience });
   const requireRefreshCookieCsrf = requireCookieCsrf({ allowedOrigins });

@@ -13,12 +13,11 @@ import rawBiometrics from './routes/raw-biometrics.js';
 import clinician from './routes/clinician.js';
 import aiChat from './routes/ai-chat.js';
 import auth from './routes/auth.js';
+import adminDebug from './routes/admin-debug.js';
 import { requireAuth } from './security.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const legacyApiKeyEnabled = process.env.LEGACY_API_KEY_ENABLED === 'true';
-const configuredApiKey = process.env.VEDA_API_KEY;
 const allowedOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -28,11 +27,11 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   throw new Error('FRONTEND_URL must contain at least one allowed origin in production.');
 }
 
-if (legacyApiKeyEnabled && !configuredApiKey) {
-  throw new Error('VEDA_API_KEY must be configured when LEGACY_API_KEY_ENABLED=true.');
-}
-
-app.set('trust proxy', 1);
+// Browser -> Vercel rewrite -> Render is two proxy hops. A fixed hop count
+// resolves the browser address without trusting an arbitrary left-most value.
+// The preview diagnostic below must confirm that Vercel/Render overwrite the
+// forwarded chain; the per-email limiter remains an independent backstop.
+app.set('trust proxy', 2);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -46,11 +45,6 @@ app.use('/auth', auth);
 
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' && req.path === '/health') return next();
-
-  if (legacyApiKeyEnabled && req.headers['x-veda-api-key']) {
-    console.warn('Legacy API key request rejected as anonymous; JWT authentication is required.');
-    return res.status(401).json({ error: 'Authentication required' });
-  }
 
   return requireAuth(req, res, next);
 });
@@ -75,6 +69,7 @@ app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);
 app.use('/api/ai-chat', aiChatLimiter);
 app.use('/api', aiChat);
+app.use('/api/admin', adminDebug);
 
 export { app };
 

@@ -7,7 +7,6 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-only-jwt-secret-that-is-at-least-32-chars';
 process.env.JWT_ISSUER = 'test-issuer';
 process.env.JWT_AUDIENCE = 'test-audience';
-process.env.LEGACY_API_KEY_ENABLED = 'false';
 
 const { app } = await import('../server.js');
 const { attachActor, requirePatientAccess } = await import('../security.js');
@@ -106,8 +105,25 @@ test('health remains public and trust proxy is configured', async () => {
   try {
     const result = await request(testServer.baseUrl, '/api/health');
     assert.equal(result.status, 200);
-    assert.equal(app.get('trust proxy'), 1);
+    assert.equal(app.get('trust proxy'), 2);
   } finally {
+    await closeServer(testServer.server);
+  }
+});
+
+test('proxy diagnostics are disabled by default', async () => {
+  const previous = process.env.ENABLE_PROXY_DEBUG;
+  delete process.env.ENABLE_PROXY_DEBUG;
+  const testServer = await startServer();
+  try {
+    const result = await request(testServer.baseUrl, '/api/admin/proxy-debug', {
+      auth: token({ id: 'admin-1', role: 'admin' }),
+    });
+    assert.equal(result.status, 404);
+    assert.equal(result.body.error, 'Not found');
+  } finally {
+    if (previous === undefined) delete process.env.ENABLE_PROXY_DEBUG;
+    else process.env.ENABLE_PROXY_DEBUG = previous;
     await closeServer(testServer.server);
   }
 });
@@ -146,5 +162,4 @@ after(() => {
   delete process.env.JWT_SECRET;
   delete process.env.JWT_ISSUER;
   delete process.env.JWT_AUDIENCE;
-  delete process.env.LEGACY_API_KEY_ENABLED;
 });

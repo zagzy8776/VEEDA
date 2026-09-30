@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "test:backend": "node --test backend/tests/*.test.js"
+    "test:backend": "node --test backend/tests/*.test.js",
+    "test:auth-client": "node --test --experimental-strip-types tests/auth-client.test.ts"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -71,6 +72,8 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
-    "tailwindcss": "4.1.12"
+    "tailwindcss": "4.1.12",
+    "typescript": "5.8.3",
+    "vite": "6.3.5"
   }
 }

@@ -35,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void> }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
@@ -74,7 +74,7 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{form.name}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>VEDA Wellness User</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{userEmail || 'Local wellness user'}</div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '3px 10px', background: 'rgba(45,212,164,0.1)', borderRadius: 8, border: '0.5px solid rgba(45,212,164,0.2)' }}>
               <Shield size={10} style={{ color: C.teal }} />
               <span style={{ fontSize: 10, color: C.teal, fontWeight: 700 }}>Wellness Estimate Mode</span>
@@ -153,6 +153,8 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
           <Save size={16} strokeWidth={2.2} />
           {saved ? 'Saved ✓' : 'Save Profile'}
         </motion.button>
+
+        {onLogout && <button onClick={() => void onLogout()} style={{ width: '100%', marginTop: 10, padding: 12, background: 'transparent', color: '#E24B4A', border: '1px solid rgba(226,75,74,0.35)', borderRadius: 14, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Sign out</button>}
 
         <div style={{ marginTop: 16, padding: '14px 16px', background: 'rgba(239,159,39,0.06)', border: '0.5px solid rgba(239,159,39,0.18)', borderRadius: 14, fontSize: 11, color: C.muted, lineHeight: 1.55, textAlign: 'center' }}>
           VEEDA clinical monitoring configuration.
