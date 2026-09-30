@@ -14,6 +14,7 @@ const { createAuthRouter } = await import('../routes/auth.js');
 
 const TEST_PASSWORD = 'correct-horse-battery';
 const TEST_SECRET = process.env.JWT_SECRET;
+const TEST_ORIGIN = 'https://frontend.example.com';
 
 function createMemoryDb() {
   const users = [];
@@ -129,6 +130,7 @@ async function startTestApp(db) {
     jwtSecret: TEST_SECRET,
     issuer: process.env.JWT_ISSUER,
     audience: process.env.JWT_AUDIENCE,
+    allowedOrigins: [TEST_ORIGIN],
   }));
 
   const server = http.createServer(app);
@@ -140,13 +142,24 @@ async function startTestApp(db) {
   };
 }
 
-async function request(baseUrl, path, body) {
+async function request(baseUrl, path, body, { cookie = '', origin = TEST_ORIGIN, requestedWith = 'XMLHttpRequest' } = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (cookie) headers.cookie = cookie;
+  if (origin !== undefined) headers.origin = origin;
+  if (requestedWith !== undefined) headers['x-requested-with'] = requestedWith;
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json() };
+  const setCookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : (response.headers.get('set-cookie') ? [response.headers.get('set-cookie')] : []);
+  return { status: response.status, body: await response.json(), setCookies };
+}
+
+function cookieValue(setCookie) {
+  return setCookie.split(';', 1)[0];
 }
 
 async function closeServer(server) {
@@ -198,7 +211,7 @@ test('rejects weak and common passwords', async () => {
   }
 });
 
-test('logs in with bcrypt and returns an issuer/audience-bound access JWT and refresh token', async () => {
+test('logs in with bcrypt and returns an issuer/audience-bound access JWT in JSON plus a secure refresh cookie', async () => {
   const db = createMemoryDb();
   const testApp = await startTestApp(db);
   try {
@@ -206,8 +219,14 @@ test('logs in with bcrypt and returns an issuer/audience-bound access JWT and re
     const result = await request(testApp.baseUrl, '/auth/login', { email: 'LOGIN@example.com', password: TEST_PASSWORD });
     assert.equal(result.status, 200);
     assert.equal(typeof result.body.accessToken, 'string');
-    assert.equal(typeof result.body.refreshToken, 'string');
+    assert.equal(result.body.refreshToken, undefined);
     assert.equal(result.body.expiresIn, 900);
+    assert.equal(result.setCookies.length, 1);
+    assert.match(result.setCookies[0], /^veda_refresh_token=[^;]+/);
+    assert.match(result.setCookies[0], /HttpOnly/i);
+    assert.match(result.setCookies[0], /Secure/i);
+    assert.match(result.setCookies[0], /SameSite=Strict/i);
+    assert.match(result.setCookies[0], /Path=\/auth/i);
     assert.equal(db.refreshTokens.length, 1);
 
     const claims = jwt.verify(result.body.accessToken, TEST_SECRET, {
@@ -242,12 +261,13 @@ test('rotates refresh tokens and revokes the old token', async () => {
   try {
     await request(testApp.baseUrl, '/auth/register', { email: 'refresh@example.com', password: TEST_PASSWORD });
     const login = await request(testApp.baseUrl, '/auth/login', { email: 'refresh@example.com', password: TEST_PASSWORD });
-    const refresh = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: login.body.refreshToken });
+    const refresh = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie: cookieValue(login.setCookies[0]) });
     assert.equal(refresh.status, 200);
-    assert.notEqual(refresh.body.refreshToken, login.body.refreshToken);
+    assert.equal(refresh.body.refreshToken, undefined);
+    assert.equal(refresh.setCookies.length, 1);
     assert.equal(db.refreshTokens.filter((token) => token.revoked_at).length, 1);
 
-    const reused = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: login.body.refreshToken });
+    const reused = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie: cookieValue(login.setCookies[0]) });
     assert.equal(reused.status, 401);
   } finally {
     await closeServer(testApp.server);
@@ -263,11 +283,11 @@ test('refresh-token reuse revokes all refresh tokens for that user', async () =>
     const secondLogin = await request(testApp.baseUrl, '/auth/login', { email: 'reuse@example.com', password: TEST_PASSWORD });
     assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 2);
 
-    const rotated = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: firstLogin.body.refreshToken });
+    const rotated = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie: cookieValue(firstLogin.setCookies[0]) });
     assert.equal(rotated.status, 200);
     assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 2);
 
-    const reused = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: firstLogin.body.refreshToken });
+    const reused = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie: cookieValue(firstLogin.setCookies[0]) });
     assert.equal(reused.status, 401);
     assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 0);
   } finally {
@@ -275,15 +295,43 @@ test('refresh-token reuse revokes all refresh tokens for that user', async () =>
   }
 });
 
-test('logout revokes the supplied refresh token', async () => {
+test('refresh requires the cookie, allowed origin, and requested-with header', async () => {
+  const db = createMemoryDb();
+  const testApp = await startTestApp(db);
+  try {
+    await request(testApp.baseUrl, '/auth/register', { email: 'csrf@example.com', password: TEST_PASSWORD });
+    const login = await request(testApp.baseUrl, '/auth/login', { email: 'csrf@example.com', password: TEST_PASSWORD });
+    const cookie = cookieValue(login.setCookies[0]);
+
+    const missingCookie = await request(testApp.baseUrl, '/auth/refresh', {}, { origin: TEST_ORIGIN });
+    assert.equal(missingCookie.status, 401);
+
+    const wrongOrigin = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie, origin: 'https://attacker.example.com' });
+    assert.equal(wrongOrigin.status, 403);
+
+    const missingHeader = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie, requestedWith: '' });
+    assert.equal(missingHeader.status, 403);
+
+    const refreshed = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie });
+    assert.equal(refreshed.status, 200);
+  } finally {
+    await closeServer(testApp.server);
+  }
+});
+
+test('logout revokes the cookie refresh token and clears the cookie', async () => {
   const db = createMemoryDb();
   const testApp = await startTestApp(db);
   try {
     await request(testApp.baseUrl, '/auth/register', { email: 'logout@example.com', password: TEST_PASSWORD });
     const login = await request(testApp.baseUrl, '/auth/login', { email: 'logout@example.com', password: TEST_PASSWORD });
-    const logout = await request(testApp.baseUrl, '/auth/logout', { refreshToken: login.body.refreshToken });
+    const cookie = cookieValue(login.setCookies[0]);
+    const logout = await request(testApp.baseUrl, '/auth/logout', {}, { cookie });
     assert.equal(logout.status, 200);
-    const refresh = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: login.body.refreshToken });
+    assert.equal(logout.setCookies.length, 1);
+    assert.match(logout.setCookies[0], /^veda_refresh_token=;/);
+    assert.match(logout.setCookies[0], /Expires=Thu, 01 Jan 1970 00:00:00 GMT/i);
+    const refresh = await request(testApp.baseUrl, '/auth/refresh', {}, { cookie });
     assert.equal(refresh.status, 401);
   } finally {
     await closeServer(testApp.server);

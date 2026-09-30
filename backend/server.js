@@ -19,13 +19,26 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const legacyApiKeyEnabled = process.env.LEGACY_API_KEY_ENABLED === 'true';
 const configuredApiKey = process.env.VEDA_API_KEY;
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('FRONTEND_URL must contain at least one allowed origin in production.');
+}
 
 if (legacyApiKeyEnabled && !configuredApiKey) {
   throw new Error('VEDA_API_KEY must be configured when LEGACY_API_KEY_ENABLED=true.');
 }
 
 app.set('trust proxy', 1);
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+}));
 app.use(express.json());
 
 // Authentication endpoints are public so users can establish a session.

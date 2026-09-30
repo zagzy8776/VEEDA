@@ -8,6 +8,7 @@ import { audit, createRequireAuth } from '../security.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REFRESH_COOKIE_NAME = 'veda_refresh_token';
 const BCRYPT_ROUNDS = 12;
 const GENERIC_LOGIN_ERROR = 'Invalid email or password';
 const GENERIC_REGISTER_ERROR = 'Unable to register with those details';
@@ -63,6 +64,54 @@ function createRefreshToken() {
   return { rawToken, tokenHash };
 }
 
+function readCookie(req, name) {
+  const cookieHeader = req.headers.cookie;
+  if (typeof cookieHeader !== 'string') return '';
+
+  const cookie = cookieHeader.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  if (!cookie) return '';
+
+  const value = cookie.slice(name.length + 1);
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return '';
+  }
+}
+
+function setRefreshCookie(res, rawToken) {
+  res.cookie(REFRESH_COOKIE_NAME, rawToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    path: '/auth',
+    maxAge: REFRESH_TOKEN_TTL_MS,
+  });
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    path: '/auth',
+  });
+}
+
+function requireCookieCsrf({ allowedOrigins }) {
+  return (req, res, next) => {
+    const origin = req.get('origin');
+    const hasAllowedOrigin = typeof origin === 'string' && allowedOrigins.includes(origin);
+    const hasRequestedWith = req.get('x-requested-with') === 'XMLHttpRequest';
+
+    if (!hasAllowedOrigin || !hasRequestedWith) {
+      return res.status(403).json({ error: 'Invalid authentication request origin' });
+    }
+
+    return next();
+  };
+}
+
 function genericRateLimit(message) {
   return rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -100,6 +149,7 @@ export function createAuthRouter({
   jwtSecret = process.env.JWT_SECRET,
   issuer = process.env.JWT_ISSUER || 'veeda-api',
   audience = process.env.JWT_AUDIENCE || 'veeda-client',
+  allowedOrigins = (process.env.FRONTEND_URL || '').split(',').map((origin) => origin.trim()).filter(Boolean),
 } = {}) {
   assertJwtSecret(jwtSecret);
 
@@ -108,6 +158,7 @@ export function createAuthRouter({
   const loginIpLimiter = loginRateLimit();
   const loginEmailLimiter = loginRateLimit((req) => normalizeEmail(req.body?.email) || 'missing-email');
   const requireClaimAuth = createRequireAuth({ secret: jwtSecret, issuer, audience });
+  const requireRefreshCookieCsrf = requireCookieCsrf({ allowedOrigins });
   const claimLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     limit: 5,
@@ -191,9 +242,9 @@ export function createAuthRouter({
         await client.query('BEGIN');
         const refreshToken = await issueRefreshToken(client, user.id);
         await client.query('COMMIT');
+        setRefreshCookie(res, refreshToken.rawToken);
         return res.json({
           accessToken,
-          refreshToken: refreshToken.rawToken,
           expiresIn: 900,
           user: { id: user.id, email: user.email, role: user.role },
         });
@@ -208,10 +259,8 @@ export function createAuthRouter({
     }
   });
 
-  router.post('/refresh', async (req, res) => {
-    const rawRefreshToken = typeof req.body?.refreshToken === 'string'
-      ? req.body.refreshToken
-      : '';
+  router.post('/refresh', requireRefreshCookieCsrf, async (req, res) => {
+    const rawRefreshToken = readCookie(req, REFRESH_COOKIE_NAME);
     if (!rawRefreshToken) {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
@@ -266,9 +315,9 @@ export function createAuthRouter({
       const accessToken = createAccessToken(tokenRecord, { jwtSecret, issuer, audience });
       const refreshToken = await issueRefreshToken(client, tokenRecord.user_id);
       await client.query('COMMIT');
+      setRefreshCookie(res, refreshToken.rawToken);
       return res.json({
         accessToken,
-        refreshToken: refreshToken.rawToken,
         expiresIn: 900,
         user: { id: tokenRecord.user_id, email: tokenRecord.email, role: tokenRecord.role },
       });
@@ -280,10 +329,8 @@ export function createAuthRouter({
     }
   });
 
-  router.post('/logout', async (req, res) => {
-    const rawRefreshToken = typeof req.body?.refreshToken === 'string'
-      ? req.body.refreshToken
-      : '';
+  router.post('/logout', requireRefreshCookieCsrf, async (req, res) => {
+    const rawRefreshToken = readCookie(req, REFRESH_COOKIE_NAME);
     if (rawRefreshToken) {
       const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
       await db.query(
@@ -293,6 +340,7 @@ export function createAuthRouter({
         [tokenHash],
       );
     }
+    clearRefreshCookie(res);
     return res.json({ ok: true });
   });
 
