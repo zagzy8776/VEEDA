@@ -37,19 +37,31 @@ test('NEWS2 Scale 1 scores oxygen-saturation boundaries according to the RCP cha
   }
 });
 
-test('NEWS2 Scale 2 scores air and oxygen boundaries according to the RCP chart', () => {
-  const airExpected = new Map([
-    [83, 3], [84, 2], [85, 2], [86, 1], [87, 1], [88, 0], [92, 0], [93, 0],
+test('NEWS2 Scale 2 scores air boundaries according to the RCP chart', () => {
+  // RCP SpO2 Scale 2 on air: <=83 -> 3, 84-85 -> 2, 86-87 -> 1, >=88 -> 0.
+  const expected = new Map([
+    [83, 3], [84, 2], [85, 2], [86, 1], [87, 1], [88, 0], [92, 0], [93, 0], [94, 0], [95, 0], [96, 0], [97, 0],
   ]);
-  for (const [oxygenSaturation, score] of airExpected) {
+  for (const [oxygenSaturation, score] of expected) {
     assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation, spo2Scale: 2 }).components.oxygenSaturation, score);
   }
+});
 
-  const oxygenExpected = new Map([
-    [83, 3], [84, 2], [85, 2], [86, 0], [92, 0], [93, 1], [94, 1], [95, 2], [96, 2], [97, 3],
+test('NEWS2 Scale 2 scores on-oxygen boundaries according to the RCP chart', () => {
+  // RCP SpO2 Scale 2 on oxygen: 86-87 always scores 1 (not oxygen-conditioned);
+  // only the >=93 bands are oxygen-conditioned: 93-94 -> 1, 95-96 -> 2, >=97 -> 3.
+  const expected = new Map([
+    [83, 3], [84, 2], [85, 2], [86, 1], [87, 1], [88, 0], [92, 0], [93, 1], [94, 1], [95, 2], [96, 2], [97, 3],
   ]);
-  for (const [oxygenSaturation, score] of oxygenExpected) {
+  for (const [oxygenSaturation, score] of expected) {
     assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation, spo2Scale: 2, supplementalOxygen: true }).components.oxygenSaturation, score);
+  }
+});
+
+test('NEWS2 Scale 2 scores 86-87 as 1 regardless of supplemental oxygen', () => {
+  for (const oxygenSaturation of [86, 87]) {
+    assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation, spo2Scale: 2 }).components.oxygenSaturation, 1);
+    assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation, spo2Scale: 2, supplementalOxygen: true }).components.oxygenSaturation, 1);
   }
 });
 
@@ -65,6 +77,9 @@ test('NEWS2 applies Scale 2 low and high thresholds', () => {
   assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation: 88, spo2Scale: 2 }).components.oxygenSaturation, 0);
   assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation: 97, spo2Scale: 2 }).components.oxygenSaturation, 0);
   assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation: 97, spo2Scale: 2, supplementalOxygen: true }).components.oxygenSaturation, 3);
+  // Regression: 86-87% on supplemental oxygen must score 1, never 0.
+  assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation: 86, spo2Scale: 2, supplementalOxygen: true }).components.oxygenSaturation, 1);
+  assert.equal(calculateNews2({ ...completeNormal, oxygenSaturation: 87, spo2Scale: 2, supplementalOxygen: true }).components.oxygenSaturation, 1);
 });
 
 test('NEWS2 handles max threshold values and high risk urgency', () => {
