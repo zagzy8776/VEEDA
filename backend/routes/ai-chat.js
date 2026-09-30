@@ -84,11 +84,10 @@ router.post('/ai-chat', async (req, res) => {
   const { message, vitals = {}, analysis = null } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
-  const patientId = req.actor?.patientId;
-  if (!patientId || patientId === 'anonymous') return res.status(403).json({ error: 'Authenticated patient context is required' });
+  const patientId = req.user.id;
 
   let context = { available: false, promptBlock: '', summaries: [] };
-  try { context = await getBiometricContext({ tenantId: req.actor.tenantId, patientId, hours: 24 }); } catch (err) { console.error('Failed to fetch biometric context:', err.message); }
+  try { context = await getBiometricContext({ tenantId: req.actor.tenantId, patientId, userId: req.user.id, hours: 24 }); } catch (err) { console.error('Failed to fetch biometric context:', err.message); }
 
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context });
   const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}`;
@@ -103,7 +102,7 @@ router.post('/ai-chat', async (req, res) => {
     try {
       const reply = await callOpenAICompatible(provider.url, provider.key, provider.model, SYSTEM_PROMPT, userPrompt);
       if (reply) {
-        await audit(req, 'READ', patientId, { resource: 'ai_chat', contextAvailable: context.available, provider: provider.name, model: provider.model });
+        await audit(req, 'READ', patientId);
         return res.json({ conversationReply: reply, source: 'ai', provider: provider.name, model: provider.model, biometricContext: context.promptBlock });
       }
     } catch (err) {
@@ -113,12 +112,7 @@ router.post('/ai-chat', async (req, res) => {
 
   const { clinicalChatReply } = await import('../clinical-context.js');
   const reply = clinicalChatReply({ message, vitals, analysis, context });
-  await audit(req, 'READ', patientId, {
-    resource: 'clinical_chat_fallback',
-    contextAvailable: context.available,
-    cerebrasConfigured: Boolean(process.env.CEREBRAS_API_KEY),
-    groqConfigured: Boolean(process.env.GROQ_API_KEY),
-  });
+  await audit(req, 'READ', patientId);
   return res.json({ conversationReply: reply, source: 'rule', biometricContext: context.promptBlock });
 });
 

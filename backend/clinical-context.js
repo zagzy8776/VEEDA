@@ -1,15 +1,30 @@
 import sql from './db.js';
 
-export async function getBiometricContext({ tenantId, patientId, hours = 24 }) {
+export async function getBiometricContext({ tenantId, patientId, userId = null, hours = 24 }) {
+  if (!userId) {
+    return {
+      available: false,
+      patientId,
+      hours,
+      summaries: [],
+      promptBlock: `<biometric_context>{"available":false,"patientId":"${patientId}","hours":${hours},"reason":"Authenticated ownership context is required."}</biometric_context>`,
+    };
+  }
+
   const { rows } = await sql.query(
     `SELECT summary, window_start, window_end
-     FROM clinical_summaries
-     WHERE tenant_id = $1
-       AND patient_id = $2
-       AND window_end >= NOW() - ($3 || ' hours')::interval
-     ORDER BY window_end DESC
+     FROM clinical_summaries cs
+     WHERE cs.tenant_id = $1
+       AND (cs.owner_user_id = $2 OR EXISTS (
+         SELECT 1 FROM patient_identity_mappings pim
+         WHERE pim.tenant_id = $1
+           AND pim.user_id = $2
+           AND pim.legacy_patient_id = cs.patient_id
+       ))
+       AND cs.window_end >= NOW() - ($3 || ' hours')::interval
+     ORDER BY cs.window_end DESC
      LIMIT 6`,
-    [tenantId, patientId, hours],
+    [tenantId, userId, hours],
   );
 
   if (!rows.length) {

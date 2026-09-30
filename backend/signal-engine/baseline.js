@@ -79,17 +79,24 @@ function computeStats(values, qualities) {
   return { mean, stdDev, median, sampleCount: filtered.length };
 }
 
-export async function computeBaseline(patientId, tenantId, metric, window = '24h') {
+export async function computeBaseline(patientId, tenantId, metric, window = '24h', userId = null) {
   const hours = WINDOW_HOURS[window] || 24;
   const minSamples = MIN_VALID_SAMPLES[window] || 8;
 
   const { rows } = await sql.query(
     `SELECT value::float AS value, metadata, timestamp
-     FROM raw_biometrics
-     WHERE tenant_id = $1 AND patient_id = $2 AND metric_type = $3
-       AND timestamp >= NOW() - ($4 || ' hours')::interval
+     FROM raw_biometrics rb
+     WHERE rb.tenant_id = $1
+       AND rb.metric_type = $3
+       AND rb.timestamp >= NOW() - ($4 || ' hours')::interval
+       AND ($5::uuid IS NOT NULL AND (rb.owner_user_id = $5 OR EXISTS (
+         SELECT 1 FROM patient_identity_mappings pim
+         WHERE pim.tenant_id = $1
+           AND pim.user_id = $5
+           AND pim.legacy_patient_id = rb.patient_id
+       )))
      ORDER BY timestamp DESC LIMIT 500`,
-    [tenantId, patientId, metric, hours]
+    [tenantId, patientId, metric, hours, userId]
   );
 
   const values = [];
@@ -119,11 +126,11 @@ export async function computeBaseline(patientId, tenantId, metric, window = '24h
   };
 }
 
-export async function computeBaselines(patientId, tenantId, metrics = ['HEART_RATE', 'RESP_RATE', 'SPO2'], windows = ['24h', '7d']) {
+export async function computeBaselines(patientId, tenantId, metrics = ['HEART_RATE', 'RESP_RATE', 'SPO2'], windows = ['24h', '7d'], userId = null) {
   const results = [];
   for (const metric of metrics) {
     for (const window of windows) {
-      results.push(await computeBaseline(patientId, tenantId, metric, window));
+      results.push(await computeBaseline(patientId, tenantId, metric, window, userId));
     }
   }
   return results;

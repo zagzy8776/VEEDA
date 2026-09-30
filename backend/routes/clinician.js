@@ -1,21 +1,13 @@
 import { Router } from 'express';
 import sql from '../db.js';
-import { audit } from '../security.js';
+import { audit, requireRole } from '../security.js';
 import { calculateNews2, calculateQsofa } from '../clinical-scoring.js';
 
 const router = Router();
 
-function requireClinician(req, res, next) {
-  if (!['nurse', 'attending', 'system_admin', 'admin'].includes(req.actor.role)) {
-    audit(req, 'ACCESS_DENIED', req.actor.patientId, { resource: 'clinician_roster' }).catch(() => {});
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  next();
-}
-
-router.get('/clinician/roster', requireClinician, async (req, res) => {
+router.get('/clinician/roster', requireRole('admin'), async (req, res) => {
   const tenantId = req.actor.tenantId;
-  const wardId = req.actor.role === 'nurse' ? req.actor.wardId : req.query.ward_id || null;
+  const wardId = null;
   const { rows } = await sql.query(
     `SELECT DISTINCT ON (patient_id, type)
        patient_id, ward_id, type, value::float AS value, unit, timestamp

@@ -69,11 +69,7 @@ function createMemoryDb() {
 
     if (sql.startsWith('SELECT rt.id, rt.user_id')) {
       const tokenHash = params[0];
-      const token = refreshTokens.find((candidate) => (
-        candidate.token_hash === tokenHash
-        && !candidate.revoked_at
-        && candidate.expires_at > new Date()
-      ));
+      const token = refreshTokens.find((candidate) => candidate.token_hash === tokenHash);
       if (!token) return { rows: [] };
       const user = users.find((candidate) => candidate.id === token.user_id);
       return {
@@ -81,6 +77,8 @@ function createMemoryDb() {
           id: token.id,
           user_id: token.user_id,
           token_hash: token.token_hash,
+          expires_at: token.expires_at,
+          revoked_at: token.revoked_at,
           email: user.email,
           role: user.role,
         }] : [],
@@ -92,6 +90,13 @@ function createMemoryDb() {
       if (!token) return { rows: [] };
       token.revoked_at = new Date();
       return { rows: [{ id: token.id }] };
+    }
+
+    if (sql.startsWith('UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, NOW()) WHERE user_id')) {
+      for (const token of refreshTokens) {
+        if (token.user_id === params[0] && !token.revoked_at) token.revoked_at = new Date();
+      }
+      return { rows: [] };
     }
 
     if (sql.startsWith('UPDATE refresh_tokens SET revoked_at = COALESCE')) {
@@ -244,6 +249,27 @@ test('rotates refresh tokens and revokes the old token', async () => {
 
     const reused = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: login.body.refreshToken });
     assert.equal(reused.status, 401);
+  } finally {
+    await closeServer(testApp.server);
+  }
+});
+
+test('refresh-token reuse revokes all refresh tokens for that user', async () => {
+  const db = createMemoryDb();
+  const testApp = await startTestApp(db);
+  try {
+    await request(testApp.baseUrl, '/auth/register', { email: 'reuse@example.com', password: TEST_PASSWORD });
+    const firstLogin = await request(testApp.baseUrl, '/auth/login', { email: 'reuse@example.com', password: TEST_PASSWORD });
+    const secondLogin = await request(testApp.baseUrl, '/auth/login', { email: 'reuse@example.com', password: TEST_PASSWORD });
+    assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 2);
+
+    const rotated = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: firstLogin.body.refreshToken });
+    assert.equal(rotated.status, 200);
+    assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 2);
+
+    const reused = await request(testApp.baseUrl, '/auth/refresh', { refreshToken: firstLogin.body.refreshToken });
+    assert.equal(reused.status, 401);
+    assert.equal(db.refreshTokens.filter((token) => !token.revoked_at).length, 0);
   } finally {
     await closeServer(testApp.server);
   }

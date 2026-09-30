@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import sql from '../db.js';
+import { audit, createRequireAuth } from '../security.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -106,6 +107,15 @@ export function createAuthRouter({
   const authLimiter = genericRateLimit('Too many authentication requests');
   const loginIpLimiter = loginRateLimit();
   const loginEmailLimiter = loginRateLimit((req) => normalizeEmail(req.body?.email) || 'missing-email');
+  const requireClaimAuth = createRequireAuth({ secret: jwtSecret, issuer, audience });
+  const claimLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    keyGenerator: (req) => `claim:${req.user.id}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ error: 'Too many legacy ID claim attempts' }),
+  });
 
   router.use(authLimiter);
 
@@ -211,17 +221,32 @@ export function createAuthRouter({
     try {
       await client.query('BEGIN');
       const result = await client.query(
-        `SELECT rt.id, rt.user_id, rt.token_hash, u.email, u.role
+        `SELECT rt.id, rt.user_id, rt.token_hash, rt.expires_at, rt.revoked_at,
+                u.email, u.role
          FROM refresh_tokens rt
          JOIN users u ON u.id = rt.user_id
          WHERE rt.token_hash = $1
-           AND rt.revoked_at IS NULL
-           AND rt.expires_at > NOW()
          FOR UPDATE`,
         [tokenHash],
       );
       const tokenRecord = result.rows[0];
       if (!tokenRecord) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'Invalid refresh token' });
+      }
+
+      if (tokenRecord.revoked_at) {
+        await client.query(
+          `UPDATE refresh_tokens
+           SET revoked_at = COALESCE(revoked_at, NOW())
+           WHERE user_id = $1`,
+          [tokenRecord.user_id],
+        );
+        await client.query('COMMIT');
+        return res.status(401).json({ error: 'Invalid refresh token' });
+      }
+
+      if (new Date(tokenRecord.expires_at) <= new Date()) {
         await client.query('ROLLBACK');
         return res.status(401).json({ error: 'Invalid refresh token' });
       }
@@ -269,6 +294,53 @@ export function createAuthRouter({
       );
     }
     return res.json({ ok: true });
+  });
+
+  router.post('/claim-legacy-id', requireClaimAuth, claimLimiter, async (req, res) => {
+    const legacyPatientId = typeof req.body?.legacy_patient_id === 'string'
+      ? req.body.legacy_patient_id.trim()
+      : '';
+    const tenantId = process.env.DEFAULT_TENANT_ID || 'default';
+
+    if (!legacyPatientId || legacyPatientId.length > 255) {
+      await audit(req, 'ACCESS_DENIED', legacyPatientId || null, {}, db);
+      return res.status(400).json({ error: 'legacy_patient_id is required' });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query(
+        `SELECT id
+         FROM patient_identity_mappings
+         WHERE tenant_id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [tenantId, req.user.id],
+      );
+      if (existing.rows.length) {
+        await client.query('ROLLBACK');
+        await audit(req, 'ACCESS_DENIED', legacyPatientId, {}, db);
+        return res.status(409).json({ error: 'User already has a legacy identity mapping' });
+      }
+
+      await client.query(
+        `INSERT INTO patient_identity_mappings (user_id, tenant_id, legacy_patient_id)
+         VALUES ($1, $2, $3)`,
+        [req.user.id, tenantId, legacyPatientId],
+      );
+      await audit(req, 'CREATE', legacyPatientId, {}, client);
+      await client.query('COMMIT');
+      return res.status(201).json({ ok: true });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      await audit(req, 'ACCESS_DENIED', legacyPatientId, {}, db);
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Legacy patient identity is already claimed' });
+      }
+      return res.status(500).json({ error: 'Unable to claim legacy patient identity' });
+    } finally {
+      client.release();
+    }
   });
 
   return router;

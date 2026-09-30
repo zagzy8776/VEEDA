@@ -4,7 +4,7 @@ import { audit } from '../security.js';
 const router = Router();
 
 router.post('/analyze', async (req, res) => {
-  const { vitals = {}, symptoms = [], environment = {}, patient_id } = req.body;
+  const { vitals = {}, symptoms = [], environment = {} } = req.body;
 
   let news2;
   let qsofa;
@@ -16,7 +16,7 @@ router.post('/analyze', async (req, res) => {
     news2 = calculateNews2(clinicalInput);
     qsofa = calculateQsofa(clinicalInput);
   } catch (err) {
-    await audit(req, 'ACCESS_DENIED', patient_id || req.actor?.patientId, { action: 'clinical_analysis_validation_failed', error: err.message });
+    await audit(req, 'ACCESS_DENIED', req.user.id);
     return res.status(400).json({ error: err.message });
   }
 
@@ -39,12 +39,7 @@ router.post('/analyze', async (req, res) => {
   if (vitals.temperature == null && vitals.skinTemp == null) sensorControl.deviceCollection.push('temperature');
   if (riskLevel === 'Urgent') sensorControl.actions.push('escalate_clinician_review');
 
-  await audit(req, 'READ', patient_id || req.actor?.patientId, {
-    action: 'clinical_analysis',
-    news2: news2.total,
-    qsofa: qsofa.total,
-    sensorControl,
-  });
+  await audit(req, 'READ', req.user.id);
 
   // Consumer-friendly language (no clinical jargon on the home screen)
   res.json({
