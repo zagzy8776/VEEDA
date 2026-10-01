@@ -45,6 +45,7 @@ const HistoryPage = lazy(() => import('./components/HistoryPage').then(m => ({ d
 const ProfilePage = lazy(() => import('./components/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const SummaryPage = lazy(() => import('./components/SummaryPage').then(m => ({ default: m.SummaryPage })));
 const RemindersPage = lazy(() => import('./components/RemindersPage').then(m => ({ default: m.RemindersPage })));
+const BpGlucosePage = lazy(() => import('./components/BpGlucosePage').then(m => ({ default: m.BpGlucosePage })));
 const ChatPanel = lazy(() => import('./components/ChatPanel').then(m => ({ default: m.ChatPanel })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -97,6 +98,7 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
   const [chatOpen, setChatOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [bpGlucoseOpen, setBpGlucoseOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !isFirstLaunch());
   const app = useVedaApp();
   const emergencyMode = app.analysis?.riskLevel === 'Urgent';
@@ -141,13 +143,14 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
             {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
             {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} /></div>}
             {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} /></div>}
+            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} /></div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />
       </div>
       <Suspense fallback={null}>{summaryOpen && <SummaryPage open={summaryOpen} onClose={() => setSummaryOpen(false)} userId={user?.id ?? 'local'} sections={buildSummarySections(app)} />}</Suspense>
       <Suspense fallback={null}>{remindersOpen && <RemindersPage open={remindersOpen} onClose={() => setRemindersOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
+      <Suspense fallback={null}>{bpGlucoseOpen && <BpGlucosePage open={bpGlucoseOpen} onClose={() => setBpGlucoseOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} saveBiometric={app.saveBiometric} />}</Suspense>
       {legacyId && <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(45,212,164,0.35)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>
