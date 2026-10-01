@@ -206,6 +206,23 @@ auto-dial and no guessed digits**.
    a different user: the caregiver list must NOT be visible (the per-user key is in
    the logout clear set).
 
+### Condition profiles (Phase 3)
+
+1. Open **Profile → Condition profiles**. With no approved pack it must show the
+   plain "not available" card, never a blank screen.
+2. Load the shipped example pack (`src/app/conditionProfilePack.example.json`).
+   In production it is refused; in development it loads and every field is clearly
+   an "EXAMPLE ONLY" placeholder.
+3. Confirm the tabs (sickle cell, kidney disease, epilepsy, hypertension, diabetes)
+   only show sections the pack actually carries; a condition not in the pack says so
+   rather than showing invented content.
+4. Confirm the medicine-warnings section lists only the pack's warnings — the code
+   contains no drug names — and that the app states it does not prescribe.
+5. Add a log entry for a condition, then sign out and in as a different user: the
+   entry must NOT be visible (the per-user log key is in the logout clear set).
+6. Export a condition log to CSV and confirm the header matches the pack's field ids
+   and no clinical interpretation is added.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

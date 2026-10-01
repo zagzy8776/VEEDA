@@ -46,7 +46,17 @@ set with a test; no migration run against any database.
 
 ## Phase 3 — Condition profiles
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Profile framework (warning signs, alert rules, logs, card, reminders, medicine warnings) | working | `conditionProfiles.ts` — condition-agnostic; all content from packs. |
+| Sickle cell profile | framework only | Pack slot `sickle_cell`; needs a reviewed pack. |
+| Kidney disease / risk profile | framework only | Pack slot `kidney_disease`; needs a reviewed pack. |
+| Epilepsy & seizures profile | framework only | Pack slot `epilepsy`; needs a reviewed pack (incl. seizure log fields). |
+| Hypertension & diabetes profiles | framework only | Pack slots `hypertension`/`diabetes`; need reviewed packs. |
+| Pain diary / seizure log / weight & BP logging | framework only | `profileLog.ts` device store (in logout clear set) + CSV export; fields come from the pack. |
+| Emergency card | framework only | Rendered from the pack's `emergencyCard`; needs a reviewed pack. |
+| Test reminders | framework only | Schedules are pack text; no schedule generated in code. |
+| Harmful-medicine warnings | framework only | Warnings are pack text; no drug names in code. |
 
 ## Phase 4 — Health features and prevention
 

@@ -1,0 +1,46 @@
+{
+  "id": "condition.profiles.example",
+  "version": "0.0.0-example",
+  "reviewer": "EXAMPLE (not a real reviewer)",
+  "reviewerCredential": "Physician",
+  "reviewDate": "2026-01-01",
+  "region": "NG",
+  "clinicallyReviewed": false,
+  "entries": [
+    {
+      "condition": "epilepsy",
+      "warningSigns": [
+        { "id": "example.warning", "label": "EXAMPLE ONLY — replace with the reviewer's warning sign.", "action": "EXAMPLE ONLY — replace with the reviewer's action." }
+      ],
+      "logFields": [
+        { "id": "seizure.duration", "label": "EXAMPLE ONLY — seizure duration", "type": "number", "unit": "seconds" },
+        { "id": "seizure.notes", "label": "EXAMPLE ONLY — notes", "type": "text" }
+      ],
+      "testReminders": [
+        { "id": "example.test", "label": "EXAMPLE ONLY — test reminder", "schedule": "EXAMPLE ONLY — schedule from the reviewer" }
+      ],
+      "medicineWarnings": [
+        { "id": "example.medicine", "warning": "EXAMPLE ONLY — replace with the reviewer's harmful-medicine warning." }
+      ],
+      "emergencyCard": {
+        "title": "EXAMPLE ONLY — emergency card title",
+        "lines": ["EXAMPLE ONLY — replace with the reviewer's emergency-card content."]
+      }
+    },
+    {
+      "condition": "hypertension",
+      "warningSigns": [
+        { "id": "example.warning", "label": "EXAMPLE ONLY — replace with the reviewer's warning sign.", "action": "EXAMPLE ONLY — replace with the reviewer's action." }
+      ],
+      "logFields": [
+        { "id": "weight.kg", "label": "EXAMPLE ONLY — weight", "type": "number", "unit": "kg" }
+      ],
+      "testReminders": [],
+      "medicineWarnings": [],
+      "emergencyCard": {
+        "title": "EXAMPLE ONLY — emergency card title",
+        "lines": ["EXAMPLE ONLY — replace with the reviewer's emergency-card content."]
+      }
+    }
+  ]
+}
