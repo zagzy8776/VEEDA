@@ -1,8 +1,33 @@
 # Database migrations
 
+## Running them
+
+```bash
+npm run migrate     # applies the base schema, then 001..011 in order
+```
+
+`npm run migrate` is **self-sufficient**: it first creates the base tables the
+numbered migrations `ALTER` (`biometric_events`, `raw_biometrics`,
+`clinical_summaries`, `audit_logs`), then applies every migration and records it
+in `schema_migrations`. It is safe on an empty database and idempotent on a
+populated one.
+
+`npm run setup` (`run-schema.js`) is the older, separate provisioning path. It
+creates the same base tables plus the append-only audit triggers, and records
+itself as `000_base_schema.sql`. It is only needed if you want the triggers
+without running migrations. It **must not** be relied on to create `users`,
+`refresh_tokens`, `readings`, `dependents`, or `review_queue` — those belong to
+migrations `001`, `002`, `008`, `009`, and `010`, which own their own DDL.
+
+> **Why this matters.** Migrations `003`, `005`, `007`, and `009` `ALTER` tables
+> they do not create. If the base tables are missing, the run aborts partway; and
+> because each migration commits its `schema_migrations` row in the *same*
+> transaction as its DDL, a rollback leaves the earlier tables created but
+> *unrecorded*, so every retry restarts and fails at the same place. This is the
+> exact failure that produced a permanent HTTP 500 on `POST /auth/register`.
+
 Apply these **in order, one at a time**, against a database that already has the
-base schema (`biometric_events`, `raw_biometrics`, `clinical_summaries`,
-`audit_logs`). Always run them first on a **Neon backup branch** before touching
+base schema. Always run them first on a **Neon backup branch** before touching
 the primary branch.
 
 | # | File | What it changes | Safe to run twice? |

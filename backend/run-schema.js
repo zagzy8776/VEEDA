@@ -94,14 +94,40 @@ const statements = [
    FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation()`,
 ];
 
+// The base schema is a *prerequisite* of the numbered migration chain: 003, 005
+// and 007 `ALTER` biometric_events / raw_biometrics / clinical_summaries /
+// audit_logs, and none of those migrations create the table first. If this script
+// silently half-applied — which is exactly what the old `catch` + `console.log`
+// loop did — a later `npm run migrate` died at 003, the transaction rolled back,
+// and 001/002 were never recorded in `schema_migrations`. The database then looked
+// "partially migrated" forever and every `supabase`-style retry repeated the same
+// failure. So: fail fast, and record the base schema in `schema_migrations` under
+// a reserved non-numeric name that the migration runner's `/^\d+_/` filter skips.
+let failed = false;
 for (const stmt of statements) {
   try {
     await pool.query(stmt);
     console.log('✓', stmt.trim().split('\n')[0].substring(0, 80));
   } catch (err) {
-    console.log('✗', stmt.trim().split('\n')[0].substring(0, 80), '-', err.message);
+    failed = true;
+    console.error('✗', stmt.trim().split('\n')[0].substring(0, 80), '-', err.message);
   }
 }
 
-await pool.end();
-console.log('\nSchema applied to Neon successfully.');
+if (failed) {
+  await pool.end();
+  console.error('\nBase schema did NOT apply cleanly. Fix the errors above and re-run; migrations will not work without these tables.');
+  process.exitCode = 1;
+} else {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      filename TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    "INSERT INTO schema_migrations (filename) VALUES ('000_base_schema.sql') ON CONFLICT (filename) DO NOTHING",
+  );
+  await pool.end();
+  console.log('\nSchema applied to Neon successfully (recorded as 000_base_schema.sql).');
+}

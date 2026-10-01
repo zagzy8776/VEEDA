@@ -217,6 +217,10 @@ export function createAuthRouter({
       if (error?.code === '23505') {
         return res.status(400).json({ error: GENERIC_REGISTER_ERROR });
       }
+      // Log server-side with the real reason. This catch previously discarded the
+      // error entirely, so a missing `users` table surfaced only as an opaque 500
+      // in the client with nothing in the logs to explain it.
+      console.error('register failed:', error);
       return res.status(500).json({ error: 'Unable to register at this time' });
     }
   });
@@ -264,7 +268,8 @@ export function createAuthRouter({
       } finally {
         client.release();
       }
-    } catch {
+    } catch (error) {
+      console.error('login failed:', error);
       return res.status(500).json({ error: 'Unable to log in at this time' });
     }
   });

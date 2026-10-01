@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "setup": "node run-schema.js",
     "migrate": "node migrate.js",
     "test": "node --test tests/*.test.js",
     "synthesize": "node workers/biometric-synthesis-worker.js --once",
