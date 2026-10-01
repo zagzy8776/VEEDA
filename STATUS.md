@@ -138,4 +138,16 @@ output is DISABLED ("not yet validated") because no validated model is registere
 
 ## Phase 9 — Safety and validation
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Per-feature validation harness (error range, sensitivity, specificity) | working | `validation.ts` — computes from cases; reports abstention and per-stratum results. |
+| Test across skin tones and bad conditions | framework only | Stratifier reporting ships; the case sets themselves are supplied by a clinician. |
+| Doctor-reviewed case-set format | working | `docs/VALIDATION_CASE_SET_FORMAT.md` + typed case format. |
+| Model-update controls | working | `promotionDecision()` — promotion needs acceptance met AND an explicit pin. |
+| Data-protection checklist doc | working | `docs/DATA_PROTECTION_CHECKLIST.md` (legal lines are placeholders). |
+| Medical-device-compliance checklist doc | working | `docs/MEDICAL_DEVICE_COMPLIANCE_CHECKLIST.md` (legal lines are placeholders). |
+
+## Finish
+
+Both suites and a build were run at the end of every phase; the final run is recorded
+in the batch report. No migration was executed against any database.

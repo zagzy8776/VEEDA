@@ -295,6 +295,19 @@ auto-dial and no guessed digits**.
 4. Confirm the languages list English, Pidgin, Igbo, Yoruba and Hausa and that a
    missing pack falls back to English rather than blank text.
 
+### Validation & compliance (Phase 9)
+
+1. Run a case set through the harness (`runHarness`) and confirm it reports sensitivity,
+   specificity, abstention rate and per-stratum results; abstentions are never counted as
+   correct.
+2. Confirm a validation record is refused when acceptance thresholds are not met, and
+   that a model only promotes when it meets thresholds **and** is explicitly pinned.
+3. Read `docs/VALIDATION_CASE_SET_FORMAT.md` and confirm the metadata requires a reviewer
+   name and credential **type** only (never a license number).
+4. Confirm `docs/DATA_PROTECTION_CHECKLIST.md` and
+   `docs/MEDICAL_DEVICE_COMPLIANCE_CHECKLIST.md` exist and every legal line is clearly a
+   `[LEGAL: …]` placeholder awaiting counsel text.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 
