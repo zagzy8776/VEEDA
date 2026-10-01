@@ -1,0 +1,23 @@
+# Database migrations
+
+Apply these **in order, one at a time**, against a database that already has the
+base schema (`biometric_events`, `raw_biometrics`, `clinical_summaries`,
+`audit_logs`). Always run them first on a **Neon backup branch** before touching
+the primary branch.
+
+| # | File | What it changes | Safe to run twice? |
+|---|------|-----------------|--------------------|
+| 001 | `001_users.sql` | Enables `pgcrypto` (guarded), then creates the `users` table (id UUID PK, email, password_hash, role, created/updated timestamps) and a unique lower-cased email index. | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE UNIQUE INDEX IF NOT EXISTS`; the extension is only created when `gen_random_uuid()` is missing. |
+| 002 | `002_refresh_tokens.sql` | Creates the `refresh_tokens` table (hashed token, expiry, `revoked_at`, FK to `users` on delete cascade) plus a user index and a partial active-token index. | **Yes.** All statements are `CREATE ... IF NOT EXISTS`. |
+| 003 | `003_ownership_columns.sql` | Adds a nullable `owner_user_id` UUID FK to `biometric_events`, `raw_biometrics`, `clinical_summaries`, and `actor_user_id` to `audit_logs`. | **Yes.** Uses `ADD COLUMN IF NOT EXISTS`. |
+| 004 | `004_patient_identity_mappings.sql` | Creates `patient_identity_mappings` (user ↔ tenant ↔ legacy_patient_id) with two uniqueness constraints. | **Yes.** `CREATE TABLE IF NOT EXISTS`. |
+| 005 | `005_ownership_indexes.sql` | Adds owner/timestamp indexes on `biometric_events`, `raw_biometrics`, and `clinical_summaries` for per-user history queries. | **Yes.** `CREATE INDEX IF NOT EXISTS`. |
+| 006 | `006_consent_records.sql` | Creates the `consent_records` table: one row per `(user_id, feature, consent_version)` holding `granted`, `recorded_at`, and `tenant_id`, plus a lookup index. This is the durable, auditable consent record (localStorage is only a cache). | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. |
+
+## Notes
+
+- Every migration is **idempotent**, so re-running the whole set is safe and is a
+  reasonable way to bring a branch up to date.
+- 003 and 005 assume the base tables exist. If they do not, apply 001 first and
+  create the base schema before continuing.
+- Nothing here is destructive: no table, column, or index is dropped or renamed.
