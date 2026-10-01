@@ -223,6 +223,23 @@ auto-dial and no guessed digits**.
 6. Export a condition log to CSV and confirm the header matches the pack's field ids
    and no clinical interpretation is added.
 
+### Prevention & food safety (Phase 4)
+
+1. Open **Profile → Prevention**. With no approved pack the triage section shows the
+   plain "not available" line and the reminder list is empty — never a blank screen.
+2. Load the example prevention pack in development and confirm the triage outcome,
+   advice and reviewer provenance all come from the pack text.
+3. Confirm the daily summary is labelled **non-clinical**, prints its formula, and
+   lists each input with its source; with no inputs it shows nothing to summarise
+   (score is null, not zero).
+4. In **Food safety**, tap **Look up** with no product endpoint configured: the
+   verdict must be `unknown`. Set a fake endpoint that returns an unlisted verdict
+   (e.g. `safe`) and confirm it still resolves to `unknown`.
+5. Confirm the OCR/spoilage line reads "not available yet — no validated model is
+   configured", and that the crowd-report line is labelled **Unverified**.
+6. Confirm mental-health crisis referral stays OFF: with the flag off, opening the
+   check-in shows a plain help line and **no crisis number**.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

@@ -60,7 +60,24 @@ set with a test; no migration run against any database.
 
 ## Phase 4 — Health features and prevention
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Malaria-first triage | framework only | `prevention.ts` rule engine; needs a reviewed malaria-first pack. |
+| Maternal & child health | framework only | Engine + pack slots; needs reviewed packs. |
+| Mental health check-ins | framework only | `mentalHealth.ts` check-in pack loader; needs a reviewed pack. |
+| Mental health crisis referral | framework only | Gated OFF in production (`mentalHealthCrisis`); needs a reviewed pack with VERIFIED numbers. |
+| Outbreak alerts | framework only | Needs a trusted outbreak feed + reviewed pack. |
+| Screening reminders | framework only | `dueReminders()` computes the next due date; the cadence is pack text. |
+| Water-safety / cholera-season reminders | framework only | Reminder domain slot; needs a reviewed pack. |
+| Daily health score | working | `healthScore.ts` — non-clinical, prints its own formula, shows each source, confidence from recorded share. |
+| Nutrition guidance | framework only | Rendered from packs; needs a reviewed pack. |
+| Chronic disease trend alerts | framework only | Detector + reminder slots; needs a validated model/thresholds. |
+| Medication refill alerts | framework only | Reminder domain `refill`; cadence is pack text. |
+| NAFDAC / barcode lookup client | framework only | `lookupProduct()` returns "unknown" until a licensed source is configured. |
+| Label reading (OCR + expiry parsing) | framework only | `parseExpiry()`/`expiryStatus()` work now; the OCR model is an unvalidated registry slot. |
+| Spoilage detection slot | framework only | Registry slot `spoilage`; disabled (no model). |
+| Crowd reports | working | Unverified label, moderation gate, rate-limit abuse control, privacy note. |
+| Chemical test-strip guidance UI | framework only | `loadStripGuidance()`; colour chart/meanings come from a pack. |
 
 ## Phase 5 — Phone-only checks and clip-on lens
 
