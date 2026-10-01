@@ -103,6 +103,54 @@ app.use('/api/admin', adminDebug);
 
 export { app };
 
+// ── Startup route inventory (non-production only) ─────────────────────────────
+// Print every mounted prefix and the paths the router under it registered. The
+// hang bug that this guards against — a router-mounted-as-factory that never
+// calls next() — is invisible in a route list, but a MISSING prefix or an empty
+// path list here is the first thing to check when a group 404s (or hangs) after a
+// deploy. Guarded to non-production so the inventory never leaks surface area
+// into prod logs.
+function listMountedRoutes(expressApp) {
+  // Express 4 exposes the layer stack as `app._router`; `app.router` is a
+  // deprecated getter that THROWS when touched in 4.x, so it must be read only
+  // inside a guard. Express 5 renames the public accessor to `app.router.stack`.
+  let stack = expressApp._router?.stack || [];
+  if (!stack.length) {
+    try {
+      stack = expressApp.router?.stack || [];
+    } catch {
+      stack = [];
+    }
+  }
+  const lines = [];
+  for (const layer of stack) {
+    if (layer.name !== 'router' || !layer.handle?.stack) continue;
+    // `layer.regexp.source` is something like `^\/api\/?(?=\/|$)`. Strip the
+    // anchors, the `/?(?=/|$)` optional-trailing-slash group, and unescape the
+    // escaped slashes to print a readable prefix.
+    const prefix = (layer.regexp?.source || '')
+      .replace(/^\^/, '')
+      .replace(/\\\/\?\(\?=\\\/\|\$\)$/, '')
+      .replace(/\\\//g, '/')
+      .replace(/\$$/, '') || '/';
+    const paths = [];
+    for (const routeLayer of layer.handle.stack) {
+      if (!routeLayer.route) continue;
+      const methods = Object.keys(routeLayer.route.methods).map((m) => m.toUpperCase()).join(',');
+      paths.push(`${methods} ${routeLayer.route.path}`);
+    }
+    lines.push(`  ${prefix}  ->  ${paths.length ? paths.join('  |  ') : '(no routes registered)'}`);
+  }
+  return lines;
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  const inventory = listMountedRoutes(app);
+  console.log(
+    `\nVEDA backend route inventory (${inventory.length} mounted groups):\n${inventory.join('\n')}\n`,
+  );
+}
+
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => console.log(`VEDA backend running on port ${PORT}`));
 }

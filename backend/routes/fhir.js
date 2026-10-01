@@ -47,15 +47,24 @@ router.post('/Observation', async (req, res) => {
 });
 
 router.get('/Patient/:patientId/vitals', requirePatientAccess('EXPORT'), async (req, res) => {
-  const { rows } = await sql.query(
-    `SELECT id, patient_id, type, value, unit, timestamp
-     FROM biometric_events
-     WHERE tenant_id = $1
-       AND ${req.user.role === 'admin' ? 'TRUE' : requestedOwnershipPredicate({ tableAlias: 'biometric_events', userParam: '$3', tenantParam: '$1', legacyParam: '$2' })}
-     ORDER BY timestamp DESC
-     LIMIT 100`,
-    req.user.role === 'admin' ? [req.actor.tenantId, req.params.patientId] : [req.actor.tenantId, req.params.patientId, req.user.id],
-  );
+  let rows;
+  try {
+    ({ rows } = await sql.query(
+      `SELECT id, patient_id, type, value, unit, timestamp
+       FROM biometric_events
+       WHERE tenant_id = $1
+         AND ${req.user.role === 'admin' ? 'TRUE' : requestedOwnershipPredicate({ tableAlias: 'biometric_events', userParam: '$3', tenantParam: '$1', legacyParam: '$2' })}
+       ORDER BY timestamp DESC
+       LIMIT 100`,
+      req.user.role === 'admin' ? [req.actor.tenantId, req.params.patientId] : [req.actor.tenantId, req.params.patientId, req.user.id],
+    ));
+  } catch (error) {
+    // A failed query must answer, not hang. This is an `async` handler: an
+    // unhandled rejection here leaves the request open forever (Express 4 does
+    // not forward it), so the client waits with no status and no error.
+    console.error('fhir vitals read failed', error.message);
+    return res.status(503).json({ error: 'Vitals could not be read. Please try again.' });
+  }
   await audit(req, 'EXPORT', req.params.patientId, { fhir: 'Bundle', count: rows.length });
   const observations = rows.map(row => biometricToFhirObservation(row));
   res.json(patientVitalsBundle(req.params.patientId, observations));
@@ -63,15 +72,23 @@ router.get('/Patient/:patientId/vitals', requirePatientAccess('EXPORT'), async (
 
 // ── FHIR Transaction Bundle Export (Patient + Practitioner + Encounter + Observations) ──
 router.get('/Patient/:patientId/clinical-bundle', requirePatientAccess('EXPORT'), async (req, res) => {
-  const { rows } = await sql.query(
-    `SELECT id, patient_id, type, value, unit, timestamp
-     FROM biometric_events
-     WHERE tenant_id = $1
-       AND ${req.user.role === 'admin' ? 'TRUE' : requestedOwnershipPredicate({ tableAlias: 'biometric_events', userParam: '$3', tenantParam: '$1', legacyParam: '$2' })}
-     ORDER BY timestamp DESC
-     LIMIT 50`,
-    req.user.role === 'admin' ? [req.actor.tenantId, req.params.patientId] : [req.actor.tenantId, req.params.patientId, req.user.id],
-  );
+  let rows;
+  try {
+    ({ rows } = await sql.query(
+      `SELECT id, patient_id, type, value, unit, timestamp
+       FROM biometric_events
+       WHERE tenant_id = $1
+         AND ${req.user.role === 'admin' ? 'TRUE' : requestedOwnershipPredicate({ tableAlias: 'biometric_events', userParam: '$3', tenantParam: '$1', legacyParam: '$2' })}
+       ORDER BY timestamp DESC
+       LIMIT 50`,
+      req.user.role === 'admin' ? [req.actor.tenantId, req.params.patientId] : [req.actor.tenantId, req.params.patientId, req.user.id],
+    ));
+  } catch (error) {
+    // Same hazard as /vitals: an unhandled rejection in an async handler hangs
+    // the request. Answer with a status instead.
+    console.error('fhir clinical-bundle read failed', error.message);
+    return res.status(503).json({ error: 'Clinical bundle could not be built. Please try again.' });
+  }
   await audit(req, 'EXPORT', req.params.patientId, { fhir: 'ClinicalBundle', count: rows.length });
 
   // Profile stored in localStorage on frontend; for now we extract from query or actor
