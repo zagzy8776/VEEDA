@@ -147,6 +147,21 @@ auto-dial and no guessed digits**.
 6. Set `VITE_ADULT_AGE_CUTOFF` to a different value, rebuild, and confirm the same
    age is reclassified at the new cutoff (the cutoff is configuration, not a
    hard-coded number).
+
+### Content packs (authoring + validator)
+
+1. Read `docs/CONTENT_PACK_GUIDE.md` and confirm it states the format and the
+   process but contains **no** clinical guidance of its own.
+2. Confirm a pack with `clinicallyReviewed: false` is refused in production and
+   the feature reports "unavailable" (never a false all-clear).
+3. Confirm a pack whose `reviewerCredential` is a license number (e.g. `1234567`)
+   is refused by both validators.
+4. Confirm the shipped example (`backend/triage/referralPack.example.json`) is
+   **refused** in production and works only in development.
+5. Grep the repo for a real license number / patient data before publishing — the
+   repo may be public; only a reviewer name and credential **type** belong in a
+   pack.
+
 7. Sign out on a shared device and confirm the selected subject is cleared (the
    next user does not inherit the previous person's switcher selection).
 

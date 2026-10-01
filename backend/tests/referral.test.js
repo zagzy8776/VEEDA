@@ -96,6 +96,19 @@ test('production mode uses a reviewed pack', () => {
 test('the shipped sample pack is NOT clinically reviewed', () => {
   assert.equal(samplePack.clinicallyReviewed, false);
   assert.equal(samplePack.reviewer, 'NOT CLINICALLY REVIEWED');
+
+test('a reviewer credential TYPE is allowed but a license NUMBER is refused (public repo safety)', async () => {
+  const { looksLikeLicenseNumber } = await import('../triage/referral.js');
+  assert.equal(looksLikeLicenseNumber('Physician'), false);
+  assert.equal(looksLikeLicenseNumber('MDCN/1234567'), true);
+  assert.equal(looksLikeLicenseNumber('RN-123456'), true);
+
+  assert.equal(validateReferralPack(reviewedPack({ reviewerCredential: 'Physician' })).ok, true);
+  const refused = validateReferralPack(reviewedPack({ reviewerCredential: '1234567' }));
+  assert.equal(refused.ok, false);
+  assert.match(refused.reason, /license number/i);
+});
+
 });
 
 test('the sample pack works in development but is refused in production', () => {

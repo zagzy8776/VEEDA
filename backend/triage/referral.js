@@ -39,6 +39,21 @@ function isValidBand(value) {
 }
 
 /**
+ * True when a string looks like a credential/license NUMBER rather than a type.
+ * The repo may be public, so a license number must never be committed in a pack.
+ * Allows a type ("Physician"), refuses a mostly-numeric or long-digit value.
+ */
+export function looksLikeLicenseNumber(value) {
+  if (typeof value !== 'string') return false;
+  const compact = value.replace(/\s+/g, '');
+  if (compact.length === 0) return false;
+  const digits = compact.replace(/\D/g, '');
+  if (digits.length === 0) return false;
+  if (/\d{5,}/.test(compact)) return true;
+  return digits.length / compact.length >= 0.5;
+}
+
+/**
  * Validate a parsed referral band pack. Returns { ok, pack } or { ok:false, reason }.
  * Production mode refuses packs not marked clinicallyReviewed.
  */
@@ -54,6 +69,9 @@ export function validateReferralPack(raw, options = {}) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw.reviewDate))) {
     return { ok: false, reason: `${label} reviewDate must be an ISO date (YYYY-MM-DD)` };
+  }
+  if (raw.reviewerCredential != null && looksLikeLicenseNumber(raw.reviewerCredential)) {
+    return { ok: false, reason: `${label} reviewerCredential looks like a license number; use a credential type only` };
   }
   if (typeof raw.clinicallyReviewed !== 'boolean') {
     return { ok: false, reason: `${label} must declare "clinicallyReviewed" (boolean)` };
@@ -78,6 +96,7 @@ export function validateReferralPack(raw, options = {}) {
         reviewDate: raw.reviewDate,
         region: raw.region,
         clinicallyReviewed: raw.clinicallyReviewed === true,
+        ...(typeof raw.reviewerCredential === 'string' ? { reviewerCredential: raw.reviewerCredential } : {}),
       },
       bands: raw.entries,
     },
