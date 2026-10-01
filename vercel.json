@@ -6,11 +6,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://REPLACE_WITH_LIVE_RENDER_HOST/api/:path*"
+      "destination": "https://veeda.onrender.com/api/:path*"
     },
     {
       "source": "/auth/:path*",
-      "destination": "https://REPLACE_WITH_LIVE_RENDER_HOST/auth/:path*"
+      "destination": "https://veeda.onrender.com/auth/:path*"
     }
   ]
 }
