@@ -30,6 +30,64 @@ export function adultAgeCutoff(env = process.env) {
 
 export const CHILD_NOT_VALIDATED_NOTE = 'Not validated for children';
 
+/**
+ * How long an unconfirmed/old age may still be trusted, in months. Read from
+ * SERVER config `AGE_RECONFIRM_MONTHS`; defaults to 12. A dependant whose age
+ * was recorded longer ago than this is treated as UNKNOWN and gets no adult
+ * scores until a carer confirms it again. This guards against a stale entry
+ * keeping an adult classified as a child (the unsafe direction for a gate).
+ */
+export const DEFAULT_AGE_RECONFIRM_MONTHS = 12;
+
+export function ageReconfirmMonths(env = process.env) {
+  const raw = env?.AGE_RECONFIRM_MONTHS;
+  const parsed = typeof raw === 'string' ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_AGE_RECONFIRM_MONTHS;
+}
+
+/**
+ * Work out an age from a stored birth year and an optional birth month, at a
+ * given moment. This is where the "age" is derived on the server, so the value
+ * is always current instead of frozen at capture time.
+ *
+ * `birthMonth` is optional. When it is known and the birthday has not come round
+ * yet this year, the person is one year younger. When the month is unknown the
+ * birthday is assumed to have passed, which yields the HIGHER age — the safe
+ * direction for an adult gate (erring toward "adult" can never wrongly call an
+ * adult a child, and an adult tool is the thing being protected).
+ *
+ * Returns null (UNKNOWN) when there is no usable birth year.
+ */
+export function ageFromBirthYear(birthYear, birthMonth = null, now = new Date()) {
+  const year = Number(birthYear);
+  if (!Number.isFinite(year) || year < 1900 || year > 2200) return null;
+  const currentYear = now.getFullYear();
+  if (year > currentYear) return null; // a future birth year is not usable
+  const currentMonth = now.getMonth() + 1;
+  const month = Number(birthMonth);
+  const monthKnown = Number.isFinite(month) && month >= 1 && month <= 12;
+  let age = currentYear - year;
+  if (monthKnown && currentMonth < month) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+/**
+ * Whether a stored age record is still trustworthy at `now`. A dependant's age
+ * is KNOWN only when a human confirmed it and that confirmation is not older
+ * than the configured re-confirm interval. Anything else is UNKNOWN — no adult
+ * scores — which fails closed for a child and never leaves a stale record
+ * wedging an adult into the child band.
+ */
+export function ageConfirmationCurrent({ ageConfirmed, ageConfirmedAt }, now = new Date(), reconfirmMonths = ageReconfirmMonths()) {
+  if (ageConfirmed !== true) return false;
+  if (ageConfirmedAt == null) return false;
+  const confirmed = new Date(ageConfirmedAt);
+  if (Number.isNaN(confirmed.getTime())) return false;
+  const cutoff = new Date(confirmed);
+  cutoff.setMonth(cutoff.getMonth() + reconfirmMonths);
+  return now.getTime() <= cutoff.getTime();
+}
+
 /** Classify an age against the configured cutoff. Unknown stays unknown. */
 export function ageBand(age, cutoff = adultAgeCutoff()) {
   if (age == null || !Number.isFinite(Number(age))) return 'unknown';
@@ -73,10 +131,10 @@ export function dependentRef(body = {}) {
  * - No dependent reference → the signed-in owner, who is an adult by definition
  *   (the client sends no age for them). `{ declared: false }`, not gated.
  * - A dependent reference → look the dependant up ON THE SERVER, scoped to the
- *   guardian, and take its age from the stored record. The client's own age
- *   claim is never used. A dependant with no stored age is UNKNOWN age (no
- *   adult scores). A dependent_id that is not owned by the caller is rejected
- *   with `owned: false`.
+ *   guardian, and compute its age from the CONFIRMED stored birth year. The
+ *   client's own age claim is never used. A dependant with no birth year, or
+ *   whose age confirmation has gone stale, is UNKNOWN age (no adult scores). A
+ *   dependent_id that is not owned by the caller is rejected with `owned: false`.
  *
  * Returns `{ declared, age, owned, dependentId }`. `owned` is false only when a
  * dependent reference was given but does not belong to the guardian; the caller
@@ -94,13 +152,24 @@ export async function resolveAdultGate(body = {}, { guardianUserId = null, db = 
 
   try {
     const { rows } = await db.query(
-      'SELECT age FROM dependents WHERE id = $1 AND guardian_user_id = $2 LIMIT 1',
+      `SELECT birth_year, birth_month, age_confirmed, age_confirmed_at
+         FROM dependents WHERE id = $1 AND guardian_user_id = $2 LIMIT 1`,
       [ref.dependentId, guardianUserId],
     );
     if (!rows.length) return { declared: true, age: null, owned: false, dependentId: ref.dependentId };
-    const stored = rows[0]?.age;
-    const age = stored == null ? null : Number(stored);
-    return { declared: true, age: Number.isFinite(age) ? age : null, owned: true, dependentId: ref.dependentId };
+    const record = rows[0] ?? {};
+    // The age is derived HERE, at request time, from the stored birth year, so a
+    // dependant keeps crossing the cutoff as they actually grow up. A record
+    // whose confirmation has gone stale is treated as UNKNOWN (no adult scores).
+    const confirmed = ageConfirmationCurrent({
+      ageConfirmed: record.age_confirmed,
+      ageConfirmedAt: record.age_confirmed_at,
+    });
+    if (!confirmed) {
+      return { declared: true, age: null, owned: true, dependentId: ref.dependentId };
+    }
+    const age = ageFromBirthYear(record.birth_year, record.birth_month);
+    return { declared: true, age, owned: true, dependentId: ref.dependentId };
   } catch (error) {
     // A missing dependents table (42P01) or any lookup failure must not let a
     // score through: report the dependant as unknown age, still owned (so the

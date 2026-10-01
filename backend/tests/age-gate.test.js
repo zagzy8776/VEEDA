@@ -24,9 +24,12 @@ const {
   adultAgeCutoff,
   ageBand,
   adultScoresAllowed,
+  ageFromBirthYear,
+  ageConfirmationCurrent,
   dependentRef,
   resolveAdultGate,
   DEFAULT_ADULT_AGE_CUTOFF,
+  DEFAULT_AGE_RECONFIRM_MONTHS,
 } = await import('../age-gate.js');
 const { createAnalyzeRouter } = await import('../routes/analyze.js');
 const { createTriageRouter } = await import('../routes/triage.js');
@@ -45,17 +48,37 @@ function token({ id = GUARDIAN, role = 'patient' } = {}) {
 
 // A stand-in for the dependants table ONLY: it answers the guardian-scoped
 // lookup the gate performs, so a guardian can never read another's dependant.
+// Records may be given either as `{ birth_year, birth_month, age_confirmed,
+// age_confirmed_at }` (the real stored shape) or with an `age` shorthand, which
+// is converted to a birth year confirmed "just now" so the intent of a test
+// reads as the age the dependant is today.
+function confirmedNow() {
+  return { age_confirmed: true, age_confirmed_at: new Date().toISOString() };
+}
+
+function normRecord(d) {
+  if (d.birth_year !== undefined || d.age_confirmed !== undefined) {
+    return { birth_month: null, ...confirmedNow(), ...d };
+  }
+  if (d.age == null) return { ...d, birth_year: null, birth_month: null, age_confirmed: false, age_confirmed_at: null };
+  return { ...d, birth_year: new Date().getFullYear() - d.age, birth_month: null, ...confirmedNow() };
+}
+
 function createDb(dependents = []) {
+  const records = dependents.map(normRecord);
   return {
-    dependents,
+    dependents: records,
     async query(text, params = []) {
       const sql = text.replace(/\s+/g, ' ').trim();
-      if (sql.startsWith('SELECT age FROM dependents')) {
+      if (sql.startsWith('SELECT birth_year, birth_month, age_confirmed, age_confirmed_at FROM dependents')) {
         const [id, guardian] = params;
         return {
-          rows: dependents
+          rows: records
             .filter((d) => String(d.id) === String(id) && String(d.guardian_user_id) === String(guardian))
-            .map((d) => ({ age: d.age })),
+            .map((d) => ({
+              birth_year: d.birth_year, birth_month: d.birth_month,
+              age_confirmed: d.age_confirmed, age_confirmed_at: d.age_confirmed_at,
+            })),
         };
       }
       if (sql.startsWith('INSERT INTO audit_logs')) return { rows: [] };
@@ -130,6 +153,38 @@ test('adult scores are allowed only for a KNOWN adult', () => {
   assert.equal(adultScoresAllowed(null, 18), false, 'an unknown age must not be scored');
 });
 
+test('age is computed from a birth year at request time, not frozen', () => {
+  const at = (y, m) => new Date(Date.UTC(y, m - 1, 15));
+  // No birth month: the birthday is assumed to have passed (the higher age).
+  assert.equal(ageFromBirthYear(2008, null, at(2026, 6)), 18);
+  // With a birth month still to come this year, the person is one younger.
+  assert.equal(ageFromBirthYear(2008, 12, at(2026, 6)), 17);
+  // Once the month has passed, the higher age applies.
+  assert.equal(ageFromBirthYear(2008, 1, at(2026, 6)), 18);
+  // No usable birth year -> unknown.
+  assert.equal(ageFromBirthYear(null, null, at(2026, 6)), null);
+  assert.equal(ageFromBirthYear(3000, null, at(2026, 6)), null, 'a future birth year is unusable');
+});
+
+test('a dependant crosses the adult cutoff as time passes', () => {
+  // Born in 2010: a child at 17 in 2027, an adult at 18 in 2028. The SAME stored
+  // birth year gives different bands as the clock moves — the point of storing a
+  // birth year rather than a frozen age.
+  const born = 2010;
+  assert.equal(adultScoresAllowed(ageFromBirthYear(born, null, new Date(Date.UTC(2027, 5, 15))), 18), false);
+  assert.equal(adultScoresAllowed(ageFromBirthYear(born, null, new Date(Date.UTC(2028, 5, 15))), 18), true);
+});
+
+test('an age confirmation is only trusted inside the re-confirm interval', () => {
+  const now = new Date(Date.UTC(2026, 5, 15));
+  const fresh = new Date(Date.UTC(2026, 5, 1)).toISOString();
+  const stale = new Date(Date.UTC(2023, 5, 1)).toISOString();
+  assert.equal(ageConfirmationCurrent({ ageConfirmed: true, ageConfirmedAt: fresh }, now, 12), true);
+  assert.equal(ageConfirmationCurrent({ ageConfirmed: true, ageConfirmedAt: stale }, now, 12), false);
+  assert.equal(ageConfirmationCurrent({ ageConfirmed: false, ageConfirmedAt: fresh }, now, 12), false, 'an unconfirmed record is unknown');
+  assert.equal(ageConfirmationCurrent({ ageConfirmed: true, ageConfirmedAt: null }, now, 12), false, 'a missing stamp is unknown');
+});
+
 test('dependentRef finds the dependant a request is about, ignoring declared age', () => {
   assert.deepEqual(dependentRef({}), { isDependent: false, dependentId: null });
   assert.deepEqual(dependentRef({ vitals: {} }), { isDependent: false, dependentId: null });
@@ -158,8 +213,18 @@ test('resolveAdultGate takes the age from the SERVER record, not the client', as
   assert.deepEqual(result, { declared: true, age: 8, owned: true, dependentId: 'dep-1' });
 });
 
-test('resolveAdultGate treats a dependant with no stored age as unknown', async () => {
+test('resolveAdultGate treats a dependant with no birth year as unknown', async () => {
   const db = createDb([{ id: 'dep-1', guardian_user_id: GUARDIAN, age: null }]);
+  const result = await resolveAdultGate({ dependentId: 'dep-1' }, { guardianUserId: GUARDIAN, db });
+  assert.deepEqual(result, { declared: true, age: null, owned: true, dependentId: 'dep-1' });
+});
+
+test('resolveAdultGate treats a stale (unconfirmed) age as unknown', async () => {
+  // Confirmed more than the re-confirm interval ago: the record can no longer be
+  // trusted, so the dependant is UNKNOWN age and gets no adult scores.
+  const longAgo = new Date();
+  longAgo.setMonth(longAgo.getMonth() - (DEFAULT_AGE_RECONFIRM_MONTHS + 1));
+  const db = createDb([{ id: 'dep-1', guardian_user_id: GUARDIAN, birth_year: 1990, age_confirmed: true, age_confirmed_at: longAgo.toISOString() }]);
   const result = await resolveAdultGate({ dependentId: 'dep-1' }, { guardianUserId: GUARDIAN, db });
   assert.deepEqual(result, { declared: true, age: null, owned: true, dependentId: 'dep-1' });
 });

@@ -8,6 +8,7 @@ import {
   activeSubjectKey,
   adultScoresAllowed,
   ageBand,
+  ageFromBirthYear,
   setActiveSubject,
 } from '../src/app/dependents.ts';
 
@@ -53,6 +54,17 @@ test('the cutoff is configuration, not hard-coded: a different value changes the
   // With an 18 cutoff the same 16-year-old is now a child.
   assert.equal(adultScoresAllowed(16, 18), false);
   assert.equal(adultScoresAllowed(18, 18), true);
+});
+
+test('age is derived from a birth year so the display gate matches the server', () => {
+  const at = new Date(Date.UTC(2026, 5, 15)); // 15 June 2026
+  assert.equal(ageFromBirthYear(2008, null, at), 18, 'no month: birthday assumed passed');
+  assert.equal(ageFromBirthYear(2008, 12, at), 17, 'month still to come this year');
+  assert.equal(ageFromBirthYear(2008, 1, at), 18, 'month already passed');
+  assert.equal(ageFromBirthYear(null, null, at), null, 'no birth year is unknown');
+  // Same birth year, later clock: a dependant crosses the cutoff.
+  assert.equal(adultScoresAllowed(ageFromBirthYear(2010, null, new Date(Date.UTC(2027, 5, 15))), 18), false);
+  assert.equal(adultScoresAllowed(ageFromBirthYear(2010, null, new Date(Date.UTC(2028, 5, 15))), 18), true);
 });
 
 test('the active subject defaults to the account owner and is per-guardian', () => {

@@ -8,7 +8,7 @@ import { AuthGateway } from './components/AuthGateway';
 import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, listDependents, logout, restoreSession, syncConsentedReadings, type AuthUser, type ServerDependent } from './api';
 import { hasConsent } from './consent';
 import { resolveEmergencyNumber } from './emergencyNumber';
-import { SELF_SUBJECT, activeSubject, adultScoresAllowed, setActiveSubject } from './dependents';
+import { SELF_SUBJECT, activeSubject, adultScoresAllowed, ageFromBirthYear, setActiveSubject } from './dependents';
 import { downloadReadingsCsv } from './bpGlucose';
 import { downloadContactsCsv } from './emergencyContacts';
 import { downloadCsvFile, downloadJsonFile } from './download';
@@ -222,9 +222,16 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
 
   // Adult-only scores (NEWS2/qSOFA) are shown only for the account owner or a
   // dependant known to be at/above the configured adult cutoff. A child or an
-  // unknown age gets "not validated for children" instead.
+  // unknown age gets "not validated for children" instead. The server is the
+  // safety control; this is only what the screen shows, and it mirrors the same
+  // rules: a birth year the server computed, behind a current confirmation.
   const activeDependent = dependents.find(d => d.id === activeSubjectId) || null;
-  const scoresAllowed = activeSubjectId === SELF_SUBJECT || adultScoresAllowed(activeDependent?.age ?? null);
+  const activeDependentAge = activeDependent
+    ? (activeDependent.age_confirmed === false
+        ? null
+        : activeDependent.age ?? ageFromBirthYear(activeDependent.birth_year, activeDependent.birth_month))
+    : null;
+  const scoresAllowed = activeSubjectId === SELF_SUBJECT || adultScoresAllowed(activeDependentAge);
 
   async function claimLegacyId() {
     if (!legacyId) return;

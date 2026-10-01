@@ -16,8 +16,15 @@ import type { StorageLike } from './consent.ts';
 export interface Dependent {
   id: string;
   displayName: string;
-  /** Optional. When absent the age gate treats the dependant as unknown. */
+  /**
+   * Optional. When absent the age gate treats the dependant as unknown. Prefer
+   * storing a birth year so the age stays correct over time.
+   */
   age?: number | null;
+  birthYear?: number | null;
+  birthMonth?: number | null;
+  /** Whether a carer has confirmed the age recently. Unconfirmed = unknown. */
+  ageConfirmed?: boolean;
 }
 
 /**
@@ -58,6 +65,22 @@ export function ageBand(age: number | null | undefined, cutoff: number = adultAg
  */
 export function adultScoresAllowed(age: number | null | undefined, cutoff: number = adultAgeCutoff()): boolean {
   return ageBand(age, cutoff) === 'adult';
+}
+
+/**
+ * Work out an age from a stored birth year and an optional birth month, at a
+ * given moment. Mirrors the server's `ageFromBirthYear` so the display gate and
+ * the server agree. Returns null (unknown) when there is no usable birth year.
+ */
+export function ageFromBirthYear(birthYear?: number | null, birthMonth?: number | null, now: Date = new Date()): number | null {
+  const year = Number(birthYear);
+  if (!Number.isFinite(year) || year < 1900 || year > 2200) return null;
+  if (year > now.getFullYear()) return null;
+  const month = Number(birthMonth);
+  const monthKnown = Number.isFinite(month) && month >= 1 && month <= 12;
+  let age = now.getFullYear() - year;
+  if (monthKnown && now.getMonth() + 1 < month) age -= 1;
+  return age >= 0 ? age : null;
 }
 
 // ── Header switcher state (who the readings are being recorded for) ──

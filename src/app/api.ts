@@ -188,6 +188,16 @@ export async function deleteSyncedReadings(): Promise<{ ok: boolean; error?: str
 export interface ServerDependent {
   id: string;
   display_name: string;
+  /**
+   * Stored birth year (and optional month). The server derives `age` from these
+   * at request time so it stays correct, and only trusts an age that a carer has
+   * confirmed recently. May be null when unknown.
+   */
+  birth_year: number | null;
+  birth_month: number | null;
+  age_confirmed: boolean;
+  age_confirmed_at: string | null;
+  /** Server-computed age for display; null when the birth year is unknown. */
   age: number | null;
 }
 
@@ -197,10 +207,24 @@ export async function listDependents(): Promise<ServerDependent[]> {
   return data?.dependents ?? [];
 }
 
-export async function addDependent(displayName: string, age?: number | null): Promise<ServerDependent | null> {
+/**
+ * Add a family profile. Prefer `birthYear` (so the age stays correct over time);
+ * an `age` is accepted only as a legacy fallback and is turned into a birth year
+ * on the server. `birthMonth` is optional and lets the server honour the
+ * birthday when computing the age.
+ */
+export async function addDependent(
+  displayName: string,
+  birthYear?: number | null,
+  birthMonth?: number | null,
+): Promise<ServerDependent | null> {
   const data = await apiFetch<{ dependent?: ServerDependent }>('/api/dependents', {
     method: 'POST',
-    body: JSON.stringify({ displayName, age: age ?? null }),
+    body: JSON.stringify({
+      displayName,
+      birthYear: birthYear ?? null,
+      birthMonth: birthMonth ?? null,
+    }),
   });
   return data?.dependent ?? null;
 }
