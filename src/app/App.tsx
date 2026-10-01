@@ -5,7 +5,8 @@ import { BottomNav, type Route } from './components/BottomNav';
 import { HomePage } from './components/HomePage';
 import { Onboarding } from './components/Onboarding';
 import { AuthGateway } from './components/AuthGateway';
-import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, type AuthUser } from './api';
+import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, syncConsentedReadings, type AuthUser } from './api';
+import { hasConsent } from './consent';
 import { downloadReadingsCsv } from './bpGlucose';
 import { downloadContactsCsv } from './emergencyContacts';
 import { downloadCsvFile, downloadJsonFile } from './download';
@@ -83,6 +84,15 @@ export default function App() {
     window.addEventListener('veda:session-expired', handleSessionExpired);
     return () => window.removeEventListener('veda:session-expired', handleSessionExpired);
   }, []);
+
+  // Sync-on-login: once signed in, push any on-device BP/glucose readings the
+  // server has not seen, when the user has consented. Best-effort; a failure is
+  // retried on the next save or login.
+  useEffect(() => {
+    if (authState !== 'authenticated' || !user) return;
+    const consented = hasConsent(window.localStorage, user.id, 'bp_glucose_logging');
+    void syncConsentedReadings(user.id, consented);
+  }, [authState, user?.id]);
 
   if (authState === 'checking') return <div style={{ minHeight: '100dvh', background: '#07101D', display: 'grid', placeItems: 'center', color: '#5A7A72', fontSize: 13 }}>Connecting to VEEDA…</div>;
   if (authState === 'logged-out') return <AuthGateway onAuthenticated={nextUser => { setUser(nextUser); setAuthState('authenticated'); }} onContinueLocally={() => setAuthState('local')} />;

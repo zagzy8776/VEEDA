@@ -16,6 +16,7 @@ import consent from './routes/consent.js';
 import aiChat from './routes/ai-chat.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
+import readings from './routes/readings.js';
 import adminDebug from './routes/admin-debug.js';
 import { requireAuth } from './security.js';
 
@@ -86,6 +87,7 @@ app.use('/api', clinician);
 app.use('/api', triage);
 app.use('/api', consent);
 app.use('/api', account);
+app.use('/api', readings);
 app.use('/api/map', map);
 app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);

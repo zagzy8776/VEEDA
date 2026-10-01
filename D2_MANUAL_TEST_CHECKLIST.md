@@ -114,6 +114,23 @@ auto-dial and no guessed digits**.
    is deleted.
 4. With the right password and `DELETE`, confirm the account is erased and you are
    signed out. Then sign in again: the account no longer exists and no readings
+
+### BP/glucose server sync
+
+1. Signed in AND consented, save a BP reading in **Profile → Blood pressure &
+   glucose**. Confirm it appears in the account export
+   (`GET /api/account/export` → `data.readings`) after a moment.
+2. Go offline (airplane mode) and save a reading. Confirm the reading still saves
+   on the device and the app does not error; the sync silently retries.
+3. Go back online and re-open the screen (or sign out and in). Confirm the offline
+   reading is uploaded and no duplicate appears (the `client_id` upsert).
+4. Withdraw the logging consent. Confirm new readings stop syncing. Then press
+   **Delete my synced readings** and confirm the server copy is gone (the local
+   device log is untouched).
+5. Confirm the server rejects an impossible value: post a reading with
+   `systolic` below `diastolic` directly to `/api/readings` and confirm it is
+   returned in `rejected`, not stored.
+
    remain.
 5. On a **real Postgres** (a Neon test branch), confirm the erase succeeds even
    when the user has `audit_logs` rows (this proves migration 007 was applied).

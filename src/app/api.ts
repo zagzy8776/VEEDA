@@ -1,6 +1,7 @@
 import { readingsStorageKey } from './bpGlucose.ts';
 import { consentStorageKey } from './consent.ts';
 import { contactsStorageKey } from './emergencyContacts.ts';
+import { pendingSyncKey, syncReadings, syncedIdsKey } from './readingsSync.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
 
 const BASE = '';
@@ -24,7 +25,13 @@ const LOCAL_HEALTH_KEYS = [
 // be in this set for the shared-device fix to hold.
 /** Per-user on-device keys for a given user id (BP/glucose log, consent cache, emergency contacts). */
 export function perUserDeviceKeys(userId: string): string[] {
-  return [readingsStorageKey(userId), consentStorageKey(userId), contactsStorageKey(userId)];
+  return [
+    readingsStorageKey(userId),
+    consentStorageKey(userId),
+    contactsStorageKey(userId),
+    pendingSyncKey(userId),
+    syncedIdsKey(userId),
+  ];
 }
 
 export type VedaRole = 'system_admin' | 'attending' | 'nurse' | 'patient' | 'admin' | 'clinician' | 'caregiver';
@@ -142,6 +149,32 @@ export async function syncConsentRecord(feature: string, version: string, grante
  */
 export function withdrawConsentRecord(feature: string, version: string): Promise<boolean> {
   return syncConsentRecord(feature, version, false);
+}
+
+/**
+ * Upload the on-device BP/glucose log to the server-of-record when the user is
+ * signed in AND has granted the logging consent. This is a best-effort
+ * fire-and-forget: a failure leaves the reading on the device and in the retry
+ * queue, so nothing is lost. Returns true only when the server accepted it.
+ */
+export async function syncConsentedReadings(userId: string, consented: boolean): Promise<boolean> {
+  if (!accessToken || !consented) return false;
+  return syncReadings(window.localStorage, userId, fetch, BASE, accessToken, true);
+}
+
+/**
+ * Delete the readings this account has already synced to the server. Offered as
+ * a separate, explicit action after consent is withdrawn — withdrawing consent
+ * stops future syncing but does not erase what is already stored.
+ */
+export async function deleteSyncedReadings(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { response, data } = await request<{ error?: string }>('/api/readings', { method: 'DELETE' });
+    if (response.ok) return { ok: true };
+    return { ok: false, error: data?.error || 'The synced readings could not be deleted.' };
+  } catch {
+    return { ok: false, error: 'Could not reach the server.' };
+  }
 }
 
 /**

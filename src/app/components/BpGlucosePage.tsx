@@ -14,6 +14,8 @@ import {
 } from '../bpGlucose';
 import { CONSENT_ITEMS, CONSENT_VERSION, hasConsent, recordConsent, type ConsentFeature } from '../consent';
 import { syncConsentRecord } from '../api';
+import { syncConsentedReadings } from '../api';
+import { deleteSyncedReadings } from '../api';
 import { downloadCsvFile } from '../download';
 
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.96)', border: 'rgba(255,255,255,0.1)', amber: '#EF9F27' };
@@ -37,6 +39,7 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
   const [error, setError] = useState('');
   const [consented, setConsented] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [syncNote, setSyncNote] = useState('');
 
   const consentItem = CONSENT_ITEMS.find(item => item.feature === CONSENT_FEATURE);
   const consentedNow = consented || hasConsent(window.localStorage, userId, CONSENT_FEATURE);
@@ -65,12 +68,21 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
     }
     const stored = addReading(window.localStorage, userId, outcome.reading);
     if (stored.ok === false) { setError(stored.message ?? ''); return; }
+    // Best-effort durable copy: only when signed in and consented. A failure
+    // keeps the reading on the device and in the retry queue.
+    void syncConsentedReadings(userId, consentedNow);
     setSystolic(''); setDiastolic(''); setValue('');
     setRefresh(n => n + 1);
   }
 
   function exportCsv() {
     downloadReadingsCsv(window.localStorage, userId, downloadCsvFile, new Date().toISOString());
+  }
+
+  async function deleteSynced() {
+    setSyncNote('');
+    const result = await deleteSyncedReadings();
+    setSyncNote(result.ok ? 'Synced readings deleted from your account.' : (result.error || 'Could not delete synced readings.'));
   }
 
   return (
@@ -159,6 +171,11 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
               style={{ width: '100%', padding: 11, borderRadius: 12, border: `1px solid ${C.border}`, background: 'transparent', color: readings.length ? C.text : C.muted, cursor: readings.length ? 'pointer' : 'not-allowed', marginBottom: 8 }}>
               Export CSV
             </button>
+            <button onClick={() => void deleteSynced()}
+              style={{ width: '100%', padding: 11, borderRadius: 12, border: '1px solid rgba(226,75,74,0.3)', background: 'transparent', color: '#E24B4A', cursor: 'pointer', marginBottom: 8 }}>
+              Delete my synced readings
+            </button>
+            {syncNote && <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>{syncNote}</div>}
           </>
         )}
 

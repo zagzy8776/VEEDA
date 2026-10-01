@@ -14,6 +14,7 @@ the primary branch.
 | 005 | `005_ownership_indexes.sql` | Adds owner/timestamp indexes on `biometric_events`, `raw_biometrics`, and `clinical_summaries` for per-user history queries. | **Yes.** `CREATE INDEX IF NOT EXISTS`. |
 | 006 | `006_consent_records.sql` | Creates the `consent_records` table: one row per `(user_id, feature, consent_version)` holding `granted`, `recorded_at`, and `tenant_id`, plus a lookup index. This is the durable, auditable consent record (localStorage is only a cache). | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. |
 | 007 | `007_audit_logs_actor_fk.sql` | Drops the foreign key `audit_logs.actor_user_id → users(id)` (added in 003) and leaves the column as a plain UUID. `audit_logs` is append-only, so the DB could not null or cascade that reference and a user with any audit row could not be deleted. The append-only triggers are **not** touched; the audit trail is kept, holding ids only. | **Yes.** `DROP CONSTRAINT IF EXISTS` is a no-op once the constraint is gone. |
+| 008 | `008_readings.sql` | Creates the `readings` table for synced blood-pressure/glucose readings: `owner_user_id` (FK to `users`, delete cascade), `client_id`, `kind`, the paired `systolic`/`diastolic` or `value`/`unit`, optional `context`, `source`, `recorded_at`, and a `UNIQUE (owner_user_id, client_id)` so re-sending a reading upserts instead of duplicating. Adds owner/timestamp and tenant indexes. | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. |
 
 ## Notes
 

@@ -49,6 +49,7 @@ statement set at a time:
 | 5 | `backend/migrations/005_ownership_indexes.sql` |
 | 6 | `backend/migrations/006_consent_records.sql` |
 | 7 | `backend/migrations/007_audit_logs_actor_fk.sql` |
+| 8 | `backend/migrations/008_readings.sql` |
 
 Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
 
