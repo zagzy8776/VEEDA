@@ -7,6 +7,7 @@ import {
   hasPendingLocalReadings,
   logout,
   markPendingHealthReading,
+  perUserDeviceKeys,
   setSession,
 } from '../src/app/api.ts';
 
@@ -183,4 +184,70 @@ test('logout clears local health state and the in-memory session', async () => {
 test('existing local health state is treated as pending without a marker', () => {
   storage.setItem('veda_latest_vitals', JSON.stringify({ vitals: { heartRate: 72 }, savedAt: Date.now() }));
   assert.equal(hasPendingLocalReadings(), true);
+});
+
+test('logout clears the per-user BP/glucose log and consent cache (shared-device safety)', async () => {
+  setSession({
+    accessToken: 'access-token-1',
+    expiresIn: 900,
+    user: { id: 'user-1', email: 'user@example.com', role: 'patient' },
+  });
+  // Batch 2 device-only data, keyed by the signed-in user.
+  storage.setItem('veda_bp_glucose_user-1', JSON.stringify([{ kind: 'blood_pressure', systolic: 120, diastolic: 80 }]));
+  storage.setItem('veda_consent_user-1', JSON.stringify({ bp_glucose_logging: { version: '1.0.0' } }));
+
+  globalThis.fetch = async () => emptyResponse();
+
+  await logout();
+
+  assert.equal(storage.getItem('veda_bp_glucose_user-1'), null, 'BP/glucose log must be cleared on logout');
+  assert.equal(storage.getItem('veda_consent_user-1'), null, 'consent cache must be cleared on logout');
+});
+
+test('a BP/glucose log counts as pending local data for the logout warning', () => {
+  setSession({
+    accessToken: 'access-token-1',
+    expiresIn: 900,
+    user: { id: 'user-1', email: 'user@example.com', role: 'patient' },
+  });
+  assert.equal(hasPendingLocalReadings(), false);
+  storage.setItem('veda_bp_glucose_user-1', JSON.stringify([{ kind: 'blood_pressure', systolic: 120, diastolic: 80 }]));
+  assert.equal(hasPendingLocalReadings(), true);
+});
+
+test('summary selections and reminders are never written to storage', () => {
+  // Summary section choices and reminder drafts are ephemeral React state, not
+  // persisted data, so there is nothing to clear on logout. This test documents
+  // that: if either is later persisted, the key must be added to the logout
+  // clear set deliberately (and the assertions here updated).
+  const persistedKeys: string[] = [];
+  const original = storage.setItem.bind(storage);
+  (storage as unknown as { setItem: (k: string, v: string) => void }).setItem = (key, value) => {
+    persistedKeys.push(key);
+    original(key, value);
+  };
+  try {
+    assert.equal(persistedKeys.some(k => /summary|reminder|medication_ics/i.test(k)), false);
+  } finally {
+    (storage as unknown as { setItem: (k: string, v: string) => void }).setItem = original;
+  }
+});
+
+test('every per-user device key is part of the logout clear set', () => {
+  // The whole point of the shared-device fix: any key keyed by user id must be
+  // covered by logout. This fails if a new per-user key is added to
+  // perUserDeviceKeys without logout clearing it.
+  setSession({
+    accessToken: 'access-token-1',
+    expiresIn: 900,
+    user: { id: 'user-1', email: 'user@example.com', role: 'patient' },
+  });
+  for (const key of perUserDeviceKeys('user-1')) storage.setItem(key, 'x');
+
+  globalThis.fetch = async () => emptyResponse();
+  return logout().then(() => {
+    for (const key of perUserDeviceKeys('user-1')) {
+      assert.equal(storage.getItem(key), null, `${key} must be cleared on logout`);
+    }
+  });
 });

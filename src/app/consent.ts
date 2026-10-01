@@ -108,6 +108,11 @@ function storageKey(userId: string): string {
   return `veda_consent_${userId}`;
 }
 
+/** The localStorage key that caches this user's consent decisions. */
+export function consentStorageKey(userId: string): string {
+  return storageKey(userId);
+}
+
 function readAll(storage: StorageLike, userId: string): Record<string, ConsentRecord> {
   try {
     const raw = storage.getItem(storageKey(userId));

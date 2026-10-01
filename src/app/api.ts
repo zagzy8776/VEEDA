@@ -1,5 +1,10 @@
+import { readingsStorageKey } from './bpGlucose.ts';
+import { consentStorageKey } from './consent.ts';
+
 const BASE = '';
 const REQUESTED_WITH = 'XMLHttpRequest';
+/** Fallback user id used when nobody is signed in (mirrors App's `user?.id ?? 'local'`). */
+export const LOCAL_USER_ID = 'local';
 const PENDING_HEALTH_KEY = 'veda_pending_health_readings';
 const LOCAL_HEALTH_KEYS = [
   'veda_latest_vitals',
@@ -9,6 +14,14 @@ const LOCAL_HEALTH_KEYS = [
   'veda_hydration_date',
   PENDING_HEALTH_KEY,
 ];
+
+// The per-user on-device keys introduced in Batch 1/2 (blood pressure and
+// glucose log, consent cache). They are keyed by user id so they must be
+// cleared for the *signed-out* user, never for whoever is next on the device.
+/** Per-user on-device keys for a given user id (BP/glucose log, consent cache). */
+export function perUserDeviceKeys(userId: string): string[] {
+  return [readingsStorageKey(userId), consentStorageKey(userId)];
+}
 
 export type VedaRole = 'system_admin' | 'attending' | 'nurse' | 'patient' | 'admin' | 'clinician' | 'caregiver';
 
@@ -70,17 +83,28 @@ export function resolvePendingHealthReading(id: string) {
 export function hasPendingLocalReadings(): boolean {
   if (readPendingHealthReadings().length > 0) return true;
   try {
-    return LOCAL_HEALTH_KEYS
+    if (LOCAL_HEALTH_KEYS
       .filter(key => key !== PENDING_HEALTH_KEY)
-      .some(key => Boolean(localStorage.getItem(key)));
+      .some(key => Boolean(localStorage.getItem(key)))) return true;
+    // Device-only logs (Batch 2): blood pressure / glucose readings that have
+    // never been synced anywhere. If any exist, the user has unsaved data.
+    if (localStorage.getItem(readingsStorageKey(currentUser?.id ?? LOCAL_USER_ID))) return true;
+    return false;
   } catch {
     return false;
   }
 }
 
-export function clearLocalHealthState() {
+/**
+ * Clear every on-device health key for the given user: the shared local vitals
+ * keys plus the per-user keys (BP/glucose log, consent cache). Passing the
+ * signed-out user's id is what stops the next person on a shared device from
+ * opening someone else's readings.
+ */
+export function clearLocalHealthState(userId: string = currentUser?.id ?? LOCAL_USER_ID) {
   try {
     for (const key of LOCAL_HEALTH_KEYS) localStorage.removeItem(key);
+    for (const key of perUserDeviceKeys(userId)) localStorage.removeItem(key);
   } catch {}
 }
 
@@ -191,6 +215,7 @@ export async function register(email: string, password: string): Promise<AuthUse
 }
 
 export async function logout(): Promise<void> {
+  const signedOutUserId = currentUser?.id ?? LOCAL_USER_ID;
   try {
     await fetch(`${BASE}/auth/logout`, {
       method: 'POST',
@@ -203,7 +228,9 @@ export async function logout(): Promise<void> {
     });
   } finally {
     clearSession();
-    clearLocalHealthState();
+    // Clear this user's on-device data *before* dropping the id, so a shared
+    // phone does not hand someone else's readings to the next person.
+    clearLocalHealthState(signedOutUserId);
   }
 }
 

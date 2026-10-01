@@ -125,6 +125,11 @@ function storageKey(userId: string): string {
   return `veda_bp_glucose_${userId}`;
 }
 
+/** The localStorage key that holds this user's blood pressure / glucose log. */
+export function readingsStorageKey(userId: string): string {
+  return storageKey(userId);
+}
+
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
