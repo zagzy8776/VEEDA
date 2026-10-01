@@ -4,6 +4,7 @@ import { contactsStorageKey } from './emergencyContacts.ts';
 import { activeSubjectKey } from './dependents.ts';
 import { caregiversStorageKey } from './caregivers.ts';
 import { profileLogStorageKey } from './profileLog.ts';
+import { offlineQueueKey } from './access.ts';
 import { pendingSyncKey, syncReadings, syncedIdsKey } from './readingsSync.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
 
@@ -37,6 +38,7 @@ export function perUserDeviceKeys(userId: string): string[] {
     activeSubjectKey(userId),
     caregiversStorageKey(userId),
     profileLogStorageKey(userId),
+    offlineQueueKey(userId),
   ];
 }
 

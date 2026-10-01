@@ -128,7 +128,13 @@ output is DISABLED ("not yet validated") because no validated model is registere
 
 ## Phase 8 — Access
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Offline mode (core checks, logging, queue sync) | working | `access.ts` per-user queue (in logout clear set); sync flushes by id. |
+| Low-data mode | working | `lowDataPolicy()` + `trimPayload()`: small batches, no images, no maps unless asked. |
+| Pidgin/Igbo/Yoruba/Hausa language packs | framework only | `languagePacks.ts` (Phase 6) + English fallback; needs reviewed language packs. |
+| Voice input/replies where the browser supports it | framework only | Browser voice detection ships; needs reviewed packs + device support. |
+| USSD/SMS fallback | framework only | `ussdSession()` — provider adapter ships UNCONFIGURED; no code shown until set. |
 
 ## Phase 9 — Safety and validation
 

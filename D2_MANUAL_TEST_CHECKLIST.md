@@ -283,6 +283,18 @@ auto-dial and no guessed digits**.
    with `escalated: true`. Confirm these against a Neon test branch with migration 010
    applied (the in-memory tests cannot prove 010 exists).
 
+### Access & offline (Phase 8)
+
+1. Open **Profile → Access & offline**. Turn **Low-data mode** on and confirm it reports
+   small batches, no images and no maps unless you ask.
+2. Go offline (airplane mode), log a reading, and confirm it still saves on the device
+   and the offline panel shows it **queued**. Return online and confirm the queue
+   flushes (and, on a shared device, that signing out clears the queue).
+3. Confirm the **USSD/SMS fallback** reads "not available: no provider is configured"
+   and shows **no short code**.
+4. Confirm the languages list English, Pidgin, Igbo, Yoruba and Hausa and that a
+   missing pack falls back to English rather than blank text.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 
