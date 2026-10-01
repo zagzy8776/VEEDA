@@ -2,6 +2,7 @@ import { readingsStorageKey } from './bpGlucose.ts';
 import { consentStorageKey } from './consent.ts';
 import { contactsStorageKey } from './emergencyContacts.ts';
 import { activeSubjectKey } from './dependents.ts';
+import { caregiversStorageKey } from './caregivers.ts';
 import { pendingSyncKey, syncReadings, syncedIdsKey } from './readingsSync.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
 
@@ -33,6 +34,7 @@ export function perUserDeviceKeys(userId: string): string[] {
     pendingSyncKey(userId),
     syncedIdsKey(userId),
     activeSubjectKey(userId),
+    caregiversStorageKey(userId),
   ];
 }
 

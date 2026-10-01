@@ -191,6 +191,21 @@ auto-dial and no guessed digits**.
    **without** one it reads "this device does not report barometric pressure"
    (never a made-up value). Same for battery temperature.
 
+### Automatic detection (Phase 2)
+
+1. Open **Profile → Automatic detection**. With no configuration every detector
+   reads "Not enabled" or "No configured limits yet" — none can show a detection.
+2. Confirm the baseline learning state appears once a learning window is set and
+   enough on-device days exist; until then a detector is "Learning", never alarming.
+3. Use the check-in ladder buttons: **Start → No answer** escalates check-in →
+   family call → SOS and shows "caregiver alert due" from the second rung. **I am
+   OK** stops the escalation. SOS is terminal (the ladder never downgrades).
+4. Confirm nothing dials or messages on the user's behalf: the caregiver alert only
+   offers a neutral, editable message (name + optional location), sent by the user.
+5. Grant **motion sensor** and **caregiver alerts** consent, then sign out and in as
+   a different user: the caregiver list must NOT be visible (the per-user key is in
+   the logout clear set).
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

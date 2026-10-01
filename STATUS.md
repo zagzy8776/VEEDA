@@ -30,7 +30,19 @@ set with a test; no migration run against any database.
 
 ## Phase 2 — Automatic detection
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| On-device baseline learning (1–2 weeks) | framework only | `learnBaseline()`; needs a real learning window set by config. Learning stays on-device. |
+| Illness drift (resting HR, activity, sleep) | framework only | Detector registered, disabled by default, no thresholds. Needs a validated model + operator thresholds. |
+| Seizure detection | framework only | Requires a validated model (registry slot `seizure_detection`) + thresholds; runs from the accelerometer. |
+| Fall / collapse detection | framework only | Escalation ladder (check-in → family call → SOS) working; the accelerometer trigger needs operator thresholds. |
+| Caregiver alert if no response | framework only | `caregivers.ts` store (device-only, in logout clear set) + neutral message; delivery uses the platform messaging app. |
+| Sickle cell crisis early warning | framework only | Model-registry slot + warning-sign pack slot; no content hard-coded. |
+| Breathing-trouble detection (mic/voice) | framework only | Needs mic consent + a validated model; no audio recorded by default. |
+| Regular short check-ins (swelling, urine) | framework only | Questions come from packs; needs a reviewed check-in pack. |
+| Escalation ladder (check-in, family call, SOS) | working | `escalation.ts`; state machine only, never dials, SOS is terminal. |
+| Replay / validation harness per detector | working | `replayDetector()`; reports a disabled detector as disabled, never scores it. |
+| Thresholds are config, default disabled | working | `DetectorConfig`; no thresholds => `disabled` with a plain reason. |
 
 ## Phase 3 — Condition profiles
 

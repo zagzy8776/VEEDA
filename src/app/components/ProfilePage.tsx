@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Bell, Camera, Mic, MapPin, Shield, Save, AlertTriangle } from 'lucide-react';
+import { User, Bell, Camera, Mic, MapPin, Shield, Save, AlertTriangle, Activity } from 'lucide-react';
 import { useState } from 'react';
 import type { Profile } from '../useVedaApp';
 
@@ -35,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts, onOpenAlerts, onExportData, onDeleteAccount }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void; onOpenAlerts?: () => void; onExportData?: () => Promise<string | null>; onDeleteAccount?: (password: string, confirm: string) => Promise<{ ok: boolean; error?: string }> }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts, onOpenAlerts, onOpenDetection, onExportData, onDeleteAccount }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void; onOpenAlerts?: () => void; onOpenDetection?: () => void; onExportData?: () => Promise<string | null>; onDeleteAccount?: (password: string, confirm: string) => Promise<{ ok: boolean; error?: string }> }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
@@ -202,6 +202,16 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Environment &amp; safety alerts</div>
                 <div style={{ fontSize: 11, color: C.muted }}>Weather, air, fire and home-safety warnings</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenDetection} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenDetection ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Activity size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Automatic detection</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Baseline learning and check-in ladder</div>
               </div>
             </div>
             <span style={{ color: C.muted, fontSize: 16 }}>›</span>

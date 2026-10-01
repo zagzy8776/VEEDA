@@ -6,3 +6,7 @@ VEEDA
 .env.local
 .env.production
 backend/.env
+
+# Test-run capture files (node --test stdout/stderr redirects)
+bk*.txt
+bt*.txt

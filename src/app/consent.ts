@@ -18,7 +18,13 @@ export type ConsentFeature =
   | 'health_data_processing'
   | 'shareable_summary'
   | 'medication_reminders'
-  | 'bp_glucose_logging';
+  | 'bp_glucose_logging'
+  | 'camera_sensor'
+  | 'mic_sensor'
+  | 'motion_sensor'
+  | 'location_sensor'
+  | 'caregiver_alerts'
+  | 'detector_baseline';
 
 export interface ConsentRecord {
   feature: ConsentFeature;
@@ -36,6 +42,12 @@ export const SERVER_FEATURE: Record<ConsentFeature, string> = {
   shareable_summary: 'sharing',
   medication_reminders: 'reminders',
   bp_glucose_logging: 'health_data',
+  camera_sensor: 'camera_analysis',
+  mic_sensor: 'camera_analysis',
+  motion_sensor: 'health_data',
+  location_sensor: 'sharing',
+  caregiver_alerts: 'sharing',
+  detector_baseline: 'health_data',
 };
 
 export interface SyncResult {
@@ -101,6 +113,36 @@ export const CONSENT_ITEMS: ConsentItem[] = [
     feature: 'bp_glucose_logging',
     title: 'Blood pressure and glucose logging',
     body: 'You can record blood pressure and blood glucose readings to see your own trends. VEEDA shows the numbers you enter without labelling them.',
+  },
+  {
+    feature: 'camera_sensor',
+    title: 'Camera sensor',
+    body: 'VEEDA can use the camera to estimate pulse and breathing on your device. A "camera is on" indicator is always shown while it is in use, nothing is recorded by default, and you can stop at any time.',
+  },
+  {
+    feature: 'mic_sensor',
+    title: 'Microphone sensor',
+    body: 'VEEDA can use the microphone to listen for breathing sounds on your device. A "microphone is on" indicator is always shown while it is in use, nothing is recorded by default, and you can stop at any time.',
+  },
+  {
+    feature: 'motion_sensor',
+    title: 'Motion sensor',
+    body: 'VEEDA can use the phone\'s motion sensor to notice a fall or long stillness. It runs on your device, never records audio or video, and only alerts people you have chosen if you do not respond.',
+  },
+  {
+    feature: 'location_sensor',
+    title: 'Location',
+    body: 'VEEDA can use your location for local weather and alerts and to include a location in an emergency message you send. Location is only read when you ask for it and is never sent anywhere on its own.',
+  },
+  {
+    feature: 'caregiver_alerts',
+    title: 'Caregiver alerts',
+    body: 'If an automatic check-in is not answered, VEEDA can message a caregiver you have chosen. It never calls anyone on your behalf, and you can turn this off at any time.',
+  },
+  {
+    feature: 'detector_baseline',
+    title: 'Learn my normal range on this device',
+    body: 'VEEDA can learn your own normal heart rate, activity and sleep range on this device over one to two weeks so it can notice changes. The learning stays on your device. Any change it shows is an early warning, not a diagnosis.',
   },
 ];
 

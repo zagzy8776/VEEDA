@@ -92,12 +92,18 @@ test('every client feature maps to a known server feature', () => {
   const clientFeatures = Object.keys(SERVER_FEATURE);
   assert.deepEqual(clientFeatures.sort(), [
     'bp_glucose_logging',
+    'camera_sensor',
+    'caregiver_alerts',
+    'detector_baseline',
     'health_data_processing',
+    'location_sensor',
     'medication_reminders',
+    'mic_sensor',
+    'motion_sensor',
     'shareable_summary',
   ]);
   for (const value of Object.values(SERVER_FEATURE)) {
-    assert.ok(['health_data', 'sharing', 'reminders'].includes(value));
+    assert.ok(['health_data', 'sharing', 'reminders', 'camera_analysis'].includes(value));
   }
 });
 
