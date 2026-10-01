@@ -111,4 +111,4 @@ export function createReviewQueueRouter({ db = sql } = {}) {
   return router;
 }
 
-export default createReviewQueueRouter;
+export default createReviewQueueRouter();

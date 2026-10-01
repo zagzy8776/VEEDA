@@ -61,12 +61,20 @@ function createReadingsDb() {
     inserted, audits,
     async query(text, params = []) {
       const sql = text.replace(/\s+/g, ' ').trim();
-      if (sql.startsWith('SELECT id FROM dependents')) {
+      if (sql.startsWith('SELECT id FROM dependents') || sql.startsWith('SELECT 1 FROM dependents')) {
         return { rows: dependents.filter((d) => d.id === params[0] && d.guardian_user_id === params[1]).map((d) => ({ id: d.id })) };
       }
       if (sql.startsWith('INSERT INTO readings')) { inserted.push(params); return { rows: [] }; }
       if (sql.startsWith('INSERT INTO audit_logs')) { audits.push({ userId: params[1], action: params[3] }); return { rows: [] }; }
-      if (sql.startsWith('SELECT client_id')) return { rows: [] };
+      if (sql.startsWith('SELECT client_id')) {
+        // Echo back the rows written this run, so a GET read-back sees what a
+        // POST stored — including the dependent_id scoping.
+        return {
+          rows: inserted
+            .filter((p) => String(p[0]) === String(params[0]) && String(p[3] ?? null) === String(params[1] ?? null))
+            .map((p) => ({ client_id: p[1], dependent_id: p[3], kind: p[4], systolic: p[5], diastolic: p[6], value: p[7], unit: p[8], context: p[9], source: p[10], recorded_at: p[11] })),
+        };
+      }
       if (sql.startsWith('DELETE FROM readings')) return { rows: [] };
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       throw new Error(`Unexpected query: ${sql}`);
@@ -129,6 +137,56 @@ test('POST /api/readings refuses a dependent that is not this guardian’s', asy
     assert.deepEqual(body.accepted, []);
     assert.equal(body.rejected[0].error, 'unknown dependent');
     assert.equal(db.inserted.length, 0);
+  } finally { await closeServer(server); }
+});
+
+test('a dependant’s reading is stored and returned with dependent_id set', async () => {
+  // If a child's reading were ever stored with dependent_id NULL, the age gate
+  // could not tell it apart from the owner's own reading later. This pins that
+  // both the write and the read-back keep the dependant attached.
+  const db = createReadingsDb();
+  const { server, baseUrl } = await startApp(db);
+  try {
+    const posted = await fetch(`${baseUrl}/api/readings`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ readings: [
+        { clientId: 'c1', kind: 'blood_pressure', systolic: 110, diastolic: 70, source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z', dependentId: 'dep-1' },
+      ] }),
+    });
+    assert.equal(posted.status, 200);
+    assert.deepEqual((await posted.json()).accepted, ['c1']);
+    // The stored row carries the dependant id (params[3] is dependent_id).
+    assert.equal(db.inserted[0][3], 'dep-1', 'the stored reading keeps dependent_id');
+
+    const listed = await fetch(`${baseUrl}/api/readings?dependent_id=dep-1`, { headers: { authorization: `Bearer ${token()}` } });
+    const body = await listed.json();
+    assert.equal(body.readings.length, 1);
+    assert.equal(body.readings[0].dependent_id, 'dep-1');
+  } finally { await closeServer(server); }
+});
+
+test('GET /api/readings returns raw readings only, never an adult-score interpretation', async () => {
+  // Readings are data, not a judgement: this route never attaches NEWS2, qSOFA,
+  // adultScoresAllowed, or any adult-BP interpretation — for a dependant or
+  // anyone else. That keeps the age gate the single place adult scoring is
+  // decided, so a child's reading can never be silently interpreted here.
+  const db = createReadingsDb();
+  const { server, baseUrl } = await startApp(db);
+  try {
+    await fetch(`${baseUrl}/api/readings`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ readings: [
+        { clientId: 'c1', kind: 'blood_pressure', systolic: 110, diastolic: 70, source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z', dependentId: 'dep-1' },
+      ] }),
+    });
+    const listed = await fetch(`${baseUrl}/api/readings?dependent_id=dep-1`, { headers: { authorization: `Bearer ${token()}` } });
+    const body = await listed.json();
+    const row = body.readings[0];
+    for (const key of ['news2', 'qsofa', 'adultScoresAllowed', 'interpretation', 'riskLevel', 'band']) {
+      assert.equal(key in row, false, `the readings route must not return ${key}`);
+    }
   } finally { await closeServer(server); }
 });
 

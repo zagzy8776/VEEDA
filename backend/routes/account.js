@@ -168,4 +168,4 @@ export function createAccountRouter({ db = sql } = {}) {
   return router;
 }
 
-export default createAccountRouter;
+export default createAccountRouter();

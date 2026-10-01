@@ -34,7 +34,7 @@ branch, or reset the primary branch to it, then re-run the failed step.
 
 ---
 
-## 2. Run migrations 001–006 (one at a time)
+## 2. Run migrations (one at a time)
 
 Use [`backend/migrations/MIGRATIONS.md`](backend/migrations/MIGRATIONS.md) as the
 reference. Apply each file **in order**, against the **primary** branch, one
@@ -51,6 +51,8 @@ statement set at a time:
 | 7 | `backend/migrations/007_audit_logs_actor_fk.sql` |
 | 8 | `backend/migrations/008_readings.sql` |
 | 9 | `backend/migrations/009_dependents.sql` |
+| 10 | `backend/migrations/010_review_queue.sql` |
+| 11 | `backend/migrations/011_dependents_birth_year.sql` |
 
 Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
 
@@ -62,15 +64,42 @@ Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
   append-only triggers stay). Run it on a real Postgres — the FK behaviour it
   fixes cannot be exercised by the in-memory tests.
 - 009 adds `readings.dependent_id`; run 008 first so the `readings` table exists.
+- 011 replaces `dependents.age` with `birth_year`/`birth_month` so the server can
+  work out a dependant's age **at request time**. It backfills `birth_year`
+  approximately from the old `age` + `created_at` and marks those rows
+  `age_confirmed = false`, so **a backfilled dependant is treated as unknown age
+  until a carer confirms it** — they get no adult-only scores until then. This is
+  the safe direction for the gate.
 
 **Verify:** after each file, the expected table/column/index exists (e.g.
 `\dt` shows `users`, `refresh_tokens`, `patient_identity_mappings`,
 `consent_records`; `\d biometric_events` shows `owner_user_id`). After 007,
 `\d audit_logs` must show `actor_user_id` with **no** foreign-key constraint.
+After 011, `\d dependents` shows `birth_year`, `birth_month`, `age_confirmed`,
+`age_confirmed_at`, and **no** `age` column.
 
-**Rollback:** migrations are non-destructive (no drops, no renames). To back out,
+**Age-gate configuration (server env, never a Vite variable):**
+
+- `ADULT_AGE_CUTOFF` — the age at/above which NEWS2, qSOFA and adult BP
+  interpretation apply. Defaults to a safe `16` if unset.
+- `AGE_RECONFIRM_MONTHS` — how long a confirmed dependant age is trusted before
+  it must be confirmed again. Defaults to `12`. A dependant whose confirmation is
+  older than this is treated as unknown age (no adult scores) until re-confirmed.
+
+**Rollback:** migrations are non-destructive to health data (011 drops
+`dependents.age` only after backfilling it into `birth_year`). To back out,
 reset the Neon branch to the step-1 backup branch, then fix the migration and
 re-run from the failed step.
+
+**Local test runs exit cleanly.** `npm run test:backend` (and the client suites)
+run without `DATABASE_URL` and must **exit on their own** — the DB pool is opened
+lazily on first query (`backend/db.js`), and a missing `DATABASE_URL` is a
+rejected query, not a hang. Route factories (`account`, `dependents`, `readings`,
+`review-queue`, `analyze`, `triage`, `auth`) are **invoked** in their default
+export so `server.js` mounts a Router, not a factory function. If a suite ever
+hangs again, one of those two invariants has regressed — fix the cause rather
+than adding `--test-force-exit` (on Windows it aborts the runner on teardown
+without telling you anything useful).
 
 ---
 

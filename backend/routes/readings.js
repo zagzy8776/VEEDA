@@ -122,4 +122,4 @@ router.delete('/readings', requirePatientAccess('CREATE'), async (req, res) => {
   return router;
 }
 
-export default createReadingsRouter;
+export default createReadingsRouter();
