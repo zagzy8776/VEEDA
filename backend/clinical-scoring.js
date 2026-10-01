@@ -1,3 +1,14 @@
+/**
+ * NEWS2 and qSOFA scoring.
+ *
+ * These are ADULT clinical tools (widely documented as validated for people
+ * aged 16+ and not for children or pregnancy). This module computes a score for
+ * whatever observations it is given and does NOT itself check age — the age
+ * gate lives at the request boundary (`backend/age-gate.js`), which every
+ * user-facing route calls before invoking these functions so an adult score is
+ * never produced for a child or an unknown age. Do not call these functions
+ * from a new route without applying `adultScoresAllowed` first.
+ */
 const RANGES = {
   heartRate: { min: 20, max: 260, unit: 'beats/min' },
   respiratoryRate: { min: 2, max: 80, unit: '/min' },

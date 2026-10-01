@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { calculateNews2, calculateQsofa } from '../clinical-scoring.js';
+import { adultScoresAllowed, resolveSubject, CHILD_NOT_VALIDATED_NOTE } from '../age-gate.js';
 import { audit } from '../security.js';
 const router = Router();
 
@@ -21,6 +22,36 @@ function safetyFallbackLine() {
 
 router.post('/analyze', async (req, res) => {
   const { vitals = {}, symptoms = [], environment = {} } = req.body;
+
+  // ── Adult-only clinical scores must never be computed for a child ──
+  // NEWS2, qSOFA and adult blood-pressure interpretation are adult tools. When
+  // the request declares the readings are for a non-owner subject (a dependant)
+  // whose age is below the server-configured cutoff — or unknown — the server
+  // REFUSES to compute them. The gate is a server config value, not a Vite
+  // variable, so a client cannot bypass it. An absent subject is the signed-in
+  // owner and is not gated.
+  const subject = resolveSubject(req.body);
+  if (subject.declared && !adultScoresAllowed(subject.age)) {
+    await audit(req, 'READ', req.user.id);
+    return res.json({
+      riskLevel: 'Stable',
+      evaluated: false,
+      headline: 'Adult clinical scores are not shown for this profile.',
+      nurseGreeting: 'Adult scores like NEWS2 and qSOFA are not validated for children.',
+      natureContext: null,
+      supportCheck: 'This profile is not scored with adult tools.',
+      safetyNotice: safetyFallbackLine(),
+      emergencyNumber: EMERGENCY_NUMBER,
+      stabilizationSteps: [],
+      warningSigns: ['Chest pain', 'Difficulty breathing', 'Confusion', 'Fainting'],
+      nextAction: 'If this person feels unwell, get medical help now.',
+      emergencyMode: false,
+      clinicalScores: { news2: null, qsofa: null },
+      adultScoresAllowed: false,
+      subjectNote: CHILD_NOT_VALIDATED_NOTE,
+      sensorControl: { mode: 'monitor', automaticCollection: [], deviceCollection: [], missing: [], actions: [] },
+    });
+  }
 
   let news2;
   let qsofa;
@@ -108,6 +139,7 @@ router.post('/analyze', async (req, res) => {
       : 'Continue monitoring your vitals.',
     emergencyMode: riskLevel === 'Urgent',
     clinicalScores: { news2, qsofa },
+    adultScoresAllowed: true,
     sensorControl,
   });
 });

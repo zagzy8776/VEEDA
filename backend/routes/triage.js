@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { audit } from '../security.js';
 import { calculateNews2 } from '../clinical-scoring.js';
+import { adultScoresAllowed, resolveSubject, CHILD_NOT_VALIDATED_NOTE } from '../age-gate.js';
 import { evaluateReferral } from '../triage/referral.js';
 
 const router = Router();
@@ -40,6 +41,29 @@ function loadPack() {
 // or unapproved pack yields an "unavailable" decision rather than a false calm.
 router.post('/triage/referral', async (req, res) => {
   const { vitals = {}, clinical = {} } = req.body || {};
+
+  // ── Adult-only NEWS2 must never be computed for a child ──
+  // The referral engine scores NEWS2, an adult tool. When the request declares a
+  // non-owner subject (a dependant) below the server-configured cutoff, or of
+  // unknown age, the server REFUSES to score and returns an "unavailable"
+  // referral instead of a number a carer could act on. The cutoff is server
+  // config, not a Vite variable. A subject-less request is the account owner.
+  const subject = resolveSubject(req.body);
+  if (subject.declared && !adultScoresAllowed(subject.age)) {
+    await audit(req, 'READ', null, { resource: 'triage_referral', action: 'unavailable_child' });
+    return res.json({
+      referral: {
+        action: 'unavailable',
+        reason: CHILD_NOT_VALIDATED_NOTE,
+        detail: 'NEWS2 is an adult tool and is not validated for children, so no referral band is produced.',
+      },
+      news2: null,
+      adultScoresAllowed: false,
+      emergencyNumber: null,
+      emergencyNumberGeneric: EMERGENCY_NUMBER,
+    });
+  }
+
   const input = {
     heartRate: vitals.heartRate,
     respiratoryRate: vitals.respiratoryRate,
