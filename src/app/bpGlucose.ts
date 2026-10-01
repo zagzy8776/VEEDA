@@ -217,3 +217,23 @@ export function readingsFilename(generatedAt: string): string {
   return `bp-glucose-${stamp}.csv`;
 }
 
+/**
+ * Download this user's on-device readings as a CSV, if there are any.
+ *
+ * The `download` callback is injected (rather than a blob/anchor touched here)
+ * so this stays a pure, testable function with no DOM dependency. Returns the
+ * number of readings written, so a caller can tell the difference between
+ * "exported N readings" and "there was nothing to export".
+ */
+export function downloadReadingsCsv(
+  storage: StorageLike,
+  userId: string,
+  download: (filename: string, csv: string) => void,
+  generatedAt: string,
+): number {
+  const readings = loadReadings(storage, userId);
+  if (readings.length === 0) return 0;
+  download(readingsFilename(generatedAt), buildReadingsCsv(readings));
+  return readings.length;
+}
+

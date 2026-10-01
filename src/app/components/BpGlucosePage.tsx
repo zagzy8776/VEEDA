@@ -5,16 +5,16 @@ import {
   DEVICE_ONLY_NOTE,
   addReading,
   bpTrend,
-  buildReadingsCsv,
+  downloadReadingsCsv,
   glucoseTrend,
   loadReadings,
   parseReading,
-  readingsFilename,
   type GlucoseUnit,
   type Reading,
 } from '../bpGlucose';
 import { CONSENT_ITEMS, CONSENT_VERSION, hasConsent, recordConsent, type ConsentFeature } from '../consent';
 import { syncConsentRecord } from '../api';
+import { downloadCsvFile } from '../download';
 
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.96)', border: 'rgba(255,255,255,0.1)', amber: '#EF9F27' };
 const CONSENT_FEATURE: ConsentFeature = 'bp_glucose_logging';
@@ -70,14 +70,7 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
   }
 
   function exportCsv() {
-    const generatedAt = new Date().toISOString();
-    const blob = new Blob([buildReadingsCsv(readings)], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = readingsFilename(generatedAt);
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadReadingsCsv(window.localStorage, userId, downloadCsvFile, new Date().toISOString());
   }
 
   return (

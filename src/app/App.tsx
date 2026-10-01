@@ -6,6 +6,8 @@ import { HomePage } from './components/HomePage';
 import { Onboarding } from './components/Onboarding';
 import { AuthGateway } from './components/AuthGateway';
 import { apiFetch, clearLocalIdentity, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, type AuthUser } from './api';
+import { downloadReadingsCsv } from './bpGlucose';
+import { downloadCsvFile } from './download';
 import { useVedaApp, isFirstLaunch } from './useVedaApp';
 import type { SummarySection } from './healthSummary';
 
@@ -58,6 +60,7 @@ function LoadingPane() { return <div style={{ height: '100%', display: 'grid', p
 export default function App() {
   const [authState, setAuthState] = useState<'checking' | 'logged-out' | 'local' | 'authenticated'>('checking');
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [logoutPromptOpen, setLogoutPromptOpen] = useState(false);
 
   useEffect(() => {
     restoreSession().then(restored => {
@@ -83,21 +86,59 @@ export default function App() {
   if (authState === 'logged-out') return <AuthGateway onAuthenticated={nextUser => { setUser(nextUser); setAuthState('authenticated'); }} onContinueLocally={() => setAuthState('local')} />;
 
   async function handleLogout() {
+    // If there is unsaved, device-only data, warn before we wipe it. A plain
+    // confirm() cannot export, so a real prompt is shown instead: it offers an
+    // Export CSV action that downloads first, then continues to logout.
     if (hasPendingLocalReadings()) {
-      const proceed = window.confirm(
-        "You have readings saved on this device that aren't in your account. "
-        + 'They will be removed when you log out. Export a CSV first if you want to keep a copy.\n\n'
-        + 'Log out anyway?',
-      );
-      if (!proceed) return;
+      setLogoutPromptOpen(true);
+      return;
     }
+    await completeLogout();
+  }
+
+  async function completeLogout() {
     await logout();
     clearLocalIdentity();
+    setLogoutPromptOpen(false);
     setUser(null);
     setAuthState('logged-out');
   }
 
-  return <VedaShell user={user} authenticated={authState === 'authenticated'} onLogout={handleLogout} />;
+  // Download the user's on-device readings *before* logout clears them. Runs
+  // synchronously, so the file is written while the data still exists.
+  function exportReadingsThenLogout() {
+    downloadReadingsCsv(window.localStorage, user?.id ?? 'local', downloadCsvFile, new Date().toISOString());
+    void completeLogout();
+  }
+
+  return (
+    <>
+      <VedaShell user={user} authenticated={authState === 'authenticated'} onLogout={handleLogout} />
+      {logoutPromptOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
+          <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(239,159,39,0.45)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Readings are stored on this device</div>
+            <div style={{ color: '#5A7A72', fontSize: 12, lineHeight: 1.5 }}>
+              You have readings saved on this device that aren't in your account. Logging out removes them for good.
+              Export a CSV first if you want to keep a copy.
+            </div>
+            <button onClick={exportReadingsThenLogout}
+              style={{ width: '100%', padding: 12, borderRadius: 12, border: 0, background: '#2DD4A4', color: '#04342C', fontWeight: 800, cursor: 'pointer', marginTop: 18 }}>
+              Export CSV &amp; log out
+            </button>
+            <button onClick={() => void completeLogout()}
+              style={{ width: '100%', padding: 11, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#E2F4F0', cursor: 'pointer', marginTop: 8 }}>
+              Log out without exporting
+            </button>
+            <button onClick={() => setLogoutPromptOpen(false)}
+              style={{ width: '100%', padding: 11, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#5A7A72', cursor: 'pointer', marginTop: 8 }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; authenticated: boolean; onLogout: () => Promise<void> }) {

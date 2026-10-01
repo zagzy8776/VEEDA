@@ -5,10 +5,12 @@ import {
   addReading,
   bpTrend,
   buildReadingsCsv,
+  downloadReadingsCsv,
   glucoseTrend,
   loadReadings,
   parseReading,
   readingsFilename,
+  readingsStorageKey,
   validateReading,
   type Reading,
   type StorageLike,
@@ -156,4 +158,68 @@ test('the CSV filename is neutral and date-stamped', () => {
   assert.equal(readingsFilename('2026-06-01T08:00:00.000Z'), 'bp-glucose-2026-06-01.csv');
   assert.doesNotMatch(readingsFilename('2026-06-01T08:00:00.000Z'), /veeda|patient|name/i);
 });
+
+// --- export-before-logout action ---
+
+test('downloadReadingsCsv exports the readings and reports how many were written', () => {
+  const store = new TestStorage();
+  addReading(store, USER, sample[0]);
+  addReading(store, USER, sample[2]);
+
+  const written: { filename: string; csv: string }[] = [];
+  const count = downloadReadingsCsv(store, USER, (filename, csv) => written.push({ filename, csv }), AT);
+
+  assert.equal(count, 2);
+  assert.equal(written.length, 1);
+  assert.equal(written[0].filename, 'bp-glucose-2026-06-01.csv');
+  // The exported CSV is the real data, not an empty file.
+  assert.match(written[0].csv, /blood_pressure,,120,80,mmHg/);
+  assert.match(written[0].csv, /blood_glucose,100,,,mg\/dL/);
+});
+
+test('downloadReadingsCsv writes nothing (and returns 0) when there is nothing to export', () => {
+  const store = new TestStorage();
+  let called = false;
+  const count = downloadReadingsCsv(store, USER, () => { called = true; }, AT);
+  assert.equal(count, 0);
+  assert.equal(called, false);
+});
+
+test('the export action runs before the data is cleared on logout', () => {
+  const store = new TestStorage();
+  addReading(store, USER, sample[1]);
+
+  // The logout prompt's "Export CSV" action must download while the readings
+  // still exist, then clearing runs afterwards. Capture what the download saw.
+  let exportedWhilePresent: string | null = null;
+  const order: string[] = [];
+
+  downloadReadingsCsv(store, USER, (filename, csv) => {
+    exportedWhilePresent = store.getItem(readingsStorageKey(USER));
+    order.push('download');
+    assert.ok(csv.includes('blood_pressure'));
+    assert.equal(filename, 'bp-glucose-2026-06-01.csv');
+  }, AT);
+
+  // Mirror what logout does after the export: clear the per-user key.
+  store.removeItem(readingsStorageKey(USER));
+  order.push('clear');
+
+  assert.deepEqual(order, ['download', 'clear'], 'export must happen before the wipe');
+  assert.notEqual(exportedWhilePresent, null, 'the data was readable when the export ran');
+  assert.equal(store.getItem(readingsStorageKey(USER)), null, 'the data is gone after logout');
+});
+
+test('if the export were skipped, the wipe would have destroyed the only copy', () => {
+  const store = new TestStorage();
+  addReading(store, USER, sample[1]);
+
+  // Same wipe as logout, but with no export first: the readings are lost.
+  store.removeItem(readingsStorageKey(USER));
+  let called = false;
+  const count = downloadReadingsCsv(store, USER, () => { called = true; }, AT);
+  assert.equal(count, 0);
+  assert.equal(called, false);
+});
+
 
