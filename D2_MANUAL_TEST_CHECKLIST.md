@@ -173,6 +173,24 @@ auto-dial and no guessed digits**.
    when the user has `audit_logs` rows (this proves migration 007 was applied).
    The in-memory tests cannot catch a missing 007.
 
+### Environment & safety alerts (Phase 1)
+
+1. Confirm the Alerts screen (**Profile → Environment & safety alerts**) never
+   shows a blank panel. With no `ALERT_PACK_PATH` set in production it must show
+   the plain "Alerts are not available right now" line **plus** the help line
+   naming the configured emergency number.
+2. Set `ALERT_PACK_PATH` to the shipped example (`src/app/alertPack.example.json`).
+   In production the pack is refused (it is `clinicallyReviewed: false`); only in
+   development does it load — and every card then shows "EXAMPLE / not clinically
+   reviewed".
+3. Confirm a **phone guess can never** raise a fire, smoke or CO alert: the panel
+   drops any such trigger (there is a unit test for both client and server).
+4. Confirm the panel wording, severity and next-step advice all come from the
+   pack — the component contains no alert text of its own.
+5. On a device **with** a barometer, confirm a reading appears; on a device
+   **without** one it reads "this device does not report barometric pressure"
+   (never a made-up value). Same for battery temperature.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

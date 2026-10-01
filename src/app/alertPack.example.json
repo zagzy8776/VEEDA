@@ -1,0 +1,47 @@
+{
+  "id": "alerts.phase1.example",
+  "version": "0.0.0-example",
+  "reviewer": "EXAMPLE (not a real reviewer)",
+  "reviewerCredential": "Physician",
+  "reviewDate": "2026-01-01",
+  "region": "NG",
+  "clinicallyReviewed": false,
+  "entries": [
+    {
+      "id": "weather.heat.advisory",
+      "kind": "weather",
+      "severity": "advisory",
+      "message": "EXAMPLE ONLY — replace with the reviewer's heat wording.",
+      "advice": "EXAMPLE ONLY — replace with the reviewer's next-step wording.",
+      "allowedSources": ["trusted_feed"]
+    },
+    {
+      "id": "air.dust.advisory",
+      "kind": "air_quality",
+      "severity": "advisory",
+      "message": "EXAMPLE ONLY — replace with the reviewer's dust/harmattan wording.",
+      "allowedSources": ["trusted_feed"]
+    },
+    {
+      "id": "fire.nearby.warning",
+      "kind": "fire",
+      "severity": "warning",
+      "message": "EXAMPLE ONLY — replace with the reviewer's nearby-fire wording.",
+      "allowedSources": ["trusted_feed", "paired_alarm"]
+    },
+    {
+      "id": "home.co.danger",
+      "kind": "home_safety",
+      "severity": "danger",
+      "message": "EXAMPLE ONLY — replace with the reviewer's CO-alarm wording.",
+      "allowedSources": ["paired_alarm"]
+    },
+    {
+      "id": "battery.hot.warning",
+      "kind": "battery",
+      "severity": "warning",
+      "message": "EXAMPLE ONLY — replace with the reviewer's battery-temperature wording.",
+      "allowedSources": ["device_sensor"]
+    }
+  ]
+}
