@@ -7,6 +7,7 @@ import { Onboarding } from './components/Onboarding';
 import { AuthGateway } from './components/AuthGateway';
 import { apiFetch, clearLocalIdentity, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, type AuthUser } from './api';
 import { downloadReadingsCsv } from './bpGlucose';
+import { downloadContactsCsv } from './emergencyContacts';
 import { downloadCsvFile } from './download';
 import { useVedaApp, isFirstLaunch } from './useVedaApp';
 import type { SummarySection } from './healthSummary';
@@ -48,6 +49,7 @@ const ProfilePage = lazy(() => import('./components/ProfilePage').then(m => ({ d
 const SummaryPage = lazy(() => import('./components/SummaryPage').then(m => ({ default: m.SummaryPage })));
 const RemindersPage = lazy(() => import('./components/RemindersPage').then(m => ({ default: m.RemindersPage })));
 const BpGlucosePage = lazy(() => import('./components/BpGlucosePage').then(m => ({ default: m.BpGlucosePage })));
+const EmergencyContactsPage = lazy(() => import('./components/EmergencyContactsPage').then(m => ({ default: m.EmergencyContactsPage })));
 const ChatPanel = lazy(() => import('./components/ChatPanel').then(m => ({ default: m.ChatPanel })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -107,7 +109,10 @@ export default function App() {
   // Download the user's on-device readings *before* logout clears them. Runs
   // synchronously, so the file is written while the data still exists.
   function exportReadingsThenLogout() {
-    downloadReadingsCsv(window.localStorage, user?.id ?? 'local', downloadCsvFile, new Date().toISOString());
+    const uid = user?.id ?? 'local';
+    const stamp = new Date().toISOString();
+    downloadReadingsCsv(window.localStorage, uid, downloadCsvFile, stamp);
+    downloadContactsCsv(window.localStorage, uid, downloadCsvFile, stamp);
     void completeLogout();
   }
 
@@ -147,6 +152,7 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [bpGlucoseOpen, setBpGlucoseOpen] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !isFirstLaunch());
   const app = useVedaApp();
   const emergencyMode = app.analysis?.riskLevel === 'Urgent';
@@ -189,9 +195,9 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
           <ErrorBoundary><Suspense fallback={<LoadingPane />}><AnimatePresence mode="wait" initial={false}>
             {route === 'home' && <div key="home" style={{ position: 'absolute', inset: 0 }}><HomePage app={app} onOpenChat={() => setChatOpen(true)} /></div>}
             {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
-            {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} /></div>}
+            {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></div>}
             {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} /></div>}
+            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} /></div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />
@@ -199,6 +205,7 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
       <Suspense fallback={null}>{summaryOpen && <SummaryPage open={summaryOpen} onClose={() => setSummaryOpen(false)} userId={user?.id ?? 'local'} sections={buildSummarySections(app)} />}</Suspense>
       <Suspense fallback={null}>{remindersOpen && <RemindersPage open={remindersOpen} onClose={() => setRemindersOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{bpGlucoseOpen && <BpGlucosePage open={bpGlucoseOpen} onClose={() => setBpGlucoseOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
+      <Suspense fallback={null}>{contactsOpen && <EmergencyContactsPage open={contactsOpen} onClose={() => setContactsOpen(false)} userId={user?.id ?? 'local'} locationText={app.location.lat != null && app.location.lng != null ? `${app.location.lat.toFixed(4)}, ${app.location.lng.toFixed(4)}` : undefined} userName={app.profile?.name} />}</Suspense>
       <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} saveBiometric={app.saveBiometric} />}</Suspense>
       {legacyId && <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(45,212,164,0.35)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>

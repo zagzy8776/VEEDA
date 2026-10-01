@@ -80,6 +80,24 @@ auto-dial and no guessed digits**.
 ### SOS dialer — with no number configured
 
 1. Clear the device cache (`localStorage.removeItem('veda_emergency_number')`) and
+
+### Emergency contacts (device-only)
+
+1. Open **Profile → Emergency contacts**. Add a contact with a name and a number
+   only; there must be no relationship/email/medical field.
+2. Confirm the list caps at **3** contacts and that adding a fourth is blocked with
+   a plain message.
+3. Tap **Call**: the phone dialer opens prefilled with that number (VEEDA itself
+   must not place the call). Tap **Message**: the messaging app opens with the
+   saved number and a neutral, editable message prefilled.
+4. Confirm the message names no condition and gives no medical advice; with
+   location permission granted the message includes the location, and with it
+   denied the message still works without it.
+5. Sign out, then sign in as a different user on the same device: the first user's
+   contacts must NOT appear (the per-user key is cleared on logout).
+6. Sign out with contacts saved and confirm the logout export includes an
+   `emergency-contacts-<date>.csv` file with the user's own contacts.
+
    set neither `EMERGENCY_NUMBER` on Render nor `VITE_EMERGENCY_NUMBER` at build.
 2. Reload and open **Map → Emergency SOS**. The button reads plain `Emergency SOS`
    (no number in the label).

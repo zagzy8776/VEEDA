@@ -1,5 +1,6 @@
 import { readingsStorageKey } from './bpGlucose.ts';
 import { consentStorageKey } from './consent.ts';
+import { contactsStorageKey } from './emergencyContacts.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
 
 const BASE = '';
@@ -16,12 +17,14 @@ const LOCAL_HEALTH_KEYS = [
   PENDING_HEALTH_KEY,
 ];
 
-// The per-user on-device keys introduced in Batch 1/2 (blood pressure and
-// glucose log, consent cache). They are keyed by user id so they must be
-// cleared for the *signed-out* user, never for whoever is next on the device.
-/** Per-user on-device keys for a given user id (BP/glucose log, consent cache). */
+// The per-user on-device keys introduced in Batch 1/2/3 (blood pressure and
+// glucose log, consent cache, emergency contacts). They are keyed by user id so
+// they must be cleared for the *signed-out* user, never for whoever is next on
+// the device. Emergency contacts hold a third party's phone number, so they must
+// be in this set for the shared-device fix to hold.
+/** Per-user on-device keys for a given user id (BP/glucose log, consent cache, emergency contacts). */
 export function perUserDeviceKeys(userId: string): string[] {
-  return [readingsStorageKey(userId), consentStorageKey(userId)];
+  return [readingsStorageKey(userId), consentStorageKey(userId), contactsStorageKey(userId)];
 }
 
 export type VedaRole = 'system_admin' | 'attending' | 'nurse' | 'patient' | 'admin' | 'clinician' | 'caregiver';

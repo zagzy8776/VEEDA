@@ -35,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
@@ -155,6 +155,16 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Blood pressure &amp; glucose</div>
                 <div style={{ fontSize: 11, color: C.muted }}>Log readings and see trends</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenContacts} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenContacts ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Shield size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Emergency contacts</div>
+                <div style={{ fontSize: 11, color: C.muted }}>People to reach in an emergency</div>
               </div>
             </div>
             <span style={{ color: C.muted, fontSize: 16 }}>›</span>
