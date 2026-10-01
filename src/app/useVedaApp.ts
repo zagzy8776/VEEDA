@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiFetch } from './api';
+import { apiFetch, markPendingHealthReading, resolvePendingHealthReading } from './api';
 import { getActor, canCreateVitals } from './api';
 import { useStepCounter } from './sensors';
 
@@ -41,9 +41,12 @@ export interface Location {
 
 export interface Analysis {
   riskLevel: string;
+  evaluated?: boolean;
   headline: string;
   nurseGreeting: string;
   supportCheck: string;
+  safetyNotice?: string | null;
+  emergencyNumber?: string | null;
   emergencyMode: boolean;
   stabilizationSteps: string[];
   warningSigns: string[];
@@ -395,11 +398,16 @@ export function useVedaApp() {
 
   const saveBiometric = useCallback(async (type: string, value: number, unit: string, metadata: Record<string, unknown> = {}) => {
     // Local UI already updated via setVital — backend save is best-effort
-    await apiFetch('/api/biometric-event', {
+    const pendingId = markPendingHealthReading(type);
+    const saved = await apiFetch('/api/biometric-event', {
       method: 'POST',
       body: JSON.stringify({ type, value, unit, timestamp: new Date().toISOString(), metadata }),
     });
-    fetchHistory();
+    if (saved) {
+      resolvePendingHealthReading(pendingId);
+      fetchHistory();
+    }
+    return saved;
   }, [fetchHistory]);
 
   const setVital = useCallback((key: keyof Vitals, value: number | boolean | Vitals['consciousness'], source: string) => {

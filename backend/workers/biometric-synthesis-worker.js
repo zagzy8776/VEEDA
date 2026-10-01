@@ -41,13 +41,22 @@ function sustainedSpo2Drop(points) {
   return false;
 }
 
-export async function synthesizeWindow({ tenantId, patientId, windowStart, windowEnd }) {
+export async function synthesizeWindow({ tenantId, patientId, ownerUserId = null, windowStart, windowEnd }) {
   const { rows } = await sql.query(
     `SELECT timestamp, metric_type, value::float AS value
-     FROM raw_biometrics
-     WHERE tenant_id = $1 AND patient_id = $2 AND timestamp >= $3 AND timestamp < $4
+     FROM raw_biometrics rb
+     WHERE rb.tenant_id = $1
+       AND rb.patient_id = $2
+       AND rb.timestamp >= $3
+       AND rb.timestamp < $4
+       AND ($5::uuid IS NOT NULL AND (rb.owner_user_id = $5 OR EXISTS (
+         SELECT 1 FROM patient_identity_mappings pim
+         WHERE pim.tenant_id = $1
+           AND pim.user_id = $5
+           AND pim.legacy_patient_id = rb.patient_id
+       )))
      ORDER BY timestamp ASC`,
-    [tenantId, patientId, windowStart, windowEnd],
+    [tenantId, patientId, windowStart, windowEnd, ownerUserId],
   );
 
   const byMetric = rows.reduce((acc, row) => {
@@ -94,11 +103,11 @@ export async function synthesizeWindow({ tenantId, patientId, windowStart, windo
   };
 
   await sql.query(
-    `INSERT INTO clinical_summaries (tenant_id, patient_id, window_start, window_end, summary)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO clinical_summaries (tenant_id, patient_id, owner_user_id, window_start, window_end, summary)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (tenant_id, patient_id, window_start, window_end)
      DO UPDATE SET summary = EXCLUDED.summary, created_at = NOW()`,
-    [tenantId, patientId, windowStart, windowEnd, JSON.stringify(summary)],
+    [tenantId, patientId, ownerUserId, windowStart, windowEnd, JSON.stringify(summary)],
   );
   return summary;
 }
@@ -107,9 +116,15 @@ export async function runSynthesis() {
   const windowEnd = new Date();
   const windowStart = new Date(windowEnd.getTime() - 4 * 60 * 60 * 1000);
   const { rows: patients } = await sql.query(
-    `SELECT DISTINCT tenant_id, patient_id
-     FROM raw_biometrics
-     WHERE timestamp >= $1 AND timestamp < $2`,
+    `SELECT DISTINCT rb.tenant_id, rb.patient_id,
+            COALESCE(rb.owner_user_id, pim.user_id) AS owner_user_id
+     FROM raw_biometrics rb
+     LEFT JOIN patient_identity_mappings pim
+       ON pim.tenant_id = rb.tenant_id
+      AND pim.legacy_patient_id = rb.patient_id
+     WHERE rb.timestamp >= $1
+       AND rb.timestamp < $2
+       AND (rb.owner_user_id IS NOT NULL OR pim.user_id IS NOT NULL)`,
     [windowStart.toISOString(), windowEnd.toISOString()],
   );
   const summaries = [];
@@ -117,6 +132,7 @@ export async function runSynthesis() {
     summaries.push(await synthesizeWindow({
       tenantId: patient.tenant_id,
       patientId: patient.patient_id,
+      ownerUserId: patient.owner_user_id,
       windowStart: windowStart.toISOString(),
       windowEnd: windowEnd.toISOString(),
     }));

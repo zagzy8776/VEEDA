@@ -1,0 +1,29 @@
+{
+  "id": "referral.news2.example",
+  "version": "0.0.0-example",
+  "reviewer": "EXAMPLE (not a real reviewer)",
+  "reviewerCredential": "Physician",
+  "reviewDate": "2026-01-01",
+  "region": "NG",
+  "clinicallyReviewed": false,
+  "entries": [
+    {
+      "minTotal": 0,
+      "maxTotal": 4,
+      "action": "self_care",
+      "instruction": "EXAMPLE ONLY — replace with clinician-authored guidance before use."
+    },
+    {
+      "minTotal": 5,
+      "maxTotal": 6,
+      "action": "urgent_care",
+      "instruction": "EXAMPLE ONLY — replace with clinician-authored guidance before use."
+    },
+    {
+      "minTotal": 7,
+      "maxTotal": 100,
+      "action": "emergency",
+      "instruction": "EXAMPLE ONLY — replace with clinician-authored guidance before use."
+    }
+  ]
+}

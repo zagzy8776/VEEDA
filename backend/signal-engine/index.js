@@ -8,15 +8,22 @@ import { buildSignal, computeTrajectory } from './trajectory.js';
 import { assessDeterioration, generateAlert } from './rules.js';
 import sql from '../db.js';
 
-async function loadLatestObservations(patientId, tenantId, metrics = ['HEART_RATE', 'RESP_RATE', 'SPO2']) {
+async function loadLatestObservations(patientId, tenantId, userId, metrics = ['HEART_RATE', 'RESP_RATE', 'SPO2']) {
   const observations = [];
   for (const metric of metrics) {
     const { rows } = await sql.query(
       `SELECT value::float AS value, unit, timestamp, metadata
-       FROM raw_biometrics
-       WHERE tenant_id = $1 AND patient_id = $2 AND metric_type = $3
+       FROM raw_biometrics rb
+       WHERE rb.tenant_id = $1
+         AND rb.metric_type = $3
+         AND ($4::uuid IS NOT NULL AND (rb.owner_user_id = $4 OR EXISTS (
+           SELECT 1 FROM patient_identity_mappings pim
+           WHERE pim.tenant_id = $1
+             AND pim.user_id = $4
+             AND pim.legacy_patient_id = rb.patient_id
+         )))
        ORDER BY timestamp DESC LIMIT 1`,
-      [tenantId, patientId, metric]
+      [tenantId, patientId, metric, userId]
     );
     if (rows.length === 0) continue;
     const row = rows[0];
@@ -41,11 +48,11 @@ async function loadLatestObservations(patientId, tenantId, metrics = ['HEART_RAT
 }
 
 export async function runSignalEngine(patientId, tenantId, options = {}) {
-  const { latestObservations: injectedObs, vitalsInput = {}, generateAlertIfNeeded = true } = options;
+  const { latestObservations: injectedObs, vitalsInput = {}, generateAlertIfNeeded = true, userId = null } = options;
 
-  const observations = injectedObs?.length ? injectedObs : await loadLatestObservations(patientId, tenantId);
+  const observations = injectedObs?.length ? injectedObs : await loadLatestObservations(patientId, tenantId, userId);
 
-  const baselines = await computeBaselines(patientId, tenantId, observations.map(o => o.metric), ['24h']);
+  const baselines = await computeBaselines(patientId, tenantId, observations.map(o => o.metric), ['24h'], userId);
   const baselineMap = new Map();
   for (const b of baselines) baselineMap.set(b.metric, b);
 

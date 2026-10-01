@@ -1,0 +1,28 @@
+{
+  "id": "intake.febrile.sample",
+  "version": "0.0.0",
+  "reviewer": "NOT CLINICALLY REVIEWED",
+  "reviewDate": "2026-01-01",
+  "region": "NG",
+  "clinicallyReviewed": false,
+  "entries": [
+    {
+      "id": "sample.fever_duration",
+      "prompt": "SAMPLE QUESTION — replace with clinician-authored intake. How many days have you had a fever?",
+      "type": "number",
+      "required": true
+    },
+    {
+      "id": "sample.breathing_difficulty",
+      "prompt": "SAMPLE QUESTION — replace with clinician-authored intake. Are you having difficulty breathing?",
+      "type": "yes_no",
+      "required": true
+    },
+    {
+      "id": "sample.consciousness",
+      "prompt": "SAMPLE QUESTION — replace with clinician-authored intake. Are you currently alert and fully awake?",
+      "type": "yes_no",
+      "required": true
+    }
+  ]
+}

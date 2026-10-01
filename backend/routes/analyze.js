@@ -1,10 +1,67 @@
 import { Router } from 'express';
+import sql from '../db.js';
 import { calculateNews2, calculateQsofa } from '../clinical-scoring.js';
+import { adultScoresAllowed, resolveAdultGate, CHILD_NOT_VALIDATED_NOTE } from '../age-gate.js';
 import { audit } from '../security.js';
-const router = Router();
 
-router.post('/analyze', async (req, res) => {
-  const { vitals = {}, symptoms = [], environment = {}, patient_id } = req.body;
+// The emergency number is verified configuration, never hard-coded. It is read
+// from the environment (same source as the triage route) so the guidance the
+// user sees always names the number configured for the deployment region.
+const EMERGENCY_NUMBER = process.env.EMERGENCY_NUMBER || null;
+
+/**
+ * Plain-language safety line shown when the engine cannot produce a usable
+ * evaluation. It must never be blank and must never guess a number: if no
+ * verified number is configured we still tell the user to get help.
+ */
+function safetyFallbackLine() {
+  return EMERGENCY_NUMBER
+    ? `If you feel very unwell, get medical help now or call ${EMERGENCY_NUMBER}.`
+    : 'If you feel very unwell, get medical help now or call your local emergency number.';
+}
+
+export function createAnalyzeRouter({ db = sql } = {}) {
+  const router = Router();
+
+  router.post('/analyze', async (req, res) => {
+  const { vitals = {}, symptoms = [], environment = {} } = req.body;
+
+  // ── Adult-only clinical scores must never be computed for a child ──
+  // NEWS2, qSOFA and adult blood-pressure interpretation are adult tools. When
+  // the request is about a dependant, the SERVER looks that dependant up (scoped
+  // to the signed-in guardian) and takes the age from the stored record — the
+  // client's own age claim is never trusted. If the dependant is below the
+  // server-configured cutoff, or its age is unknown, the server REFUSES to
+  // compute the adult scores. The cutoff is server config, not a Vite variable,
+  // so a client cannot bypass it. A request with no dependant is the signed-in
+  // owner and is not gated.
+  const subject = await resolveAdultGate(req.body, { guardianUserId: req.user?.id, db });
+  if (!subject.owned) {
+    // A dependent_id that does not belong to the caller is refused outright.
+    await audit(req, 'ACCESS_DENIED', req.user?.id ?? null);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  if (subject.declared && !adultScoresAllowed(subject.age)) {
+    await audit(req, 'READ', req.user.id);
+    return res.json({
+      riskLevel: 'Stable',
+      evaluated: false,
+      headline: 'Adult clinical scores are not shown for this profile.',
+      nurseGreeting: 'Adult scores like NEWS2 and qSOFA are not validated for children.',
+      natureContext: null,
+      supportCheck: 'This profile is not scored with adult tools.',
+      safetyNotice: safetyFallbackLine(),
+      emergencyNumber: EMERGENCY_NUMBER,
+      stabilizationSteps: [],
+      warningSigns: ['Chest pain', 'Difficulty breathing', 'Confusion', 'Fainting'],
+      nextAction: 'If this person feels unwell, get medical help now.',
+      emergencyMode: false,
+      clinicalScores: { news2: null, qsofa: null },
+      adultScoresAllowed: false,
+      subjectNote: CHILD_NOT_VALIDATED_NOTE,
+      sensorControl: { mode: 'monitor', automaticCollection: [], deviceCollection: [], missing: [], actions: [] },
+    });
+  }
 
   let news2;
   let qsofa;
@@ -16,13 +73,18 @@ router.post('/analyze', async (req, res) => {
     news2 = calculateNews2(clinicalInput);
     qsofa = calculateQsofa(clinicalInput);
   } catch (err) {
-    await audit(req, 'ACCESS_DENIED', patient_id || req.actor?.patientId, { action: 'clinical_analysis_validation_failed', error: err.message });
+    await audit(req, 'ACCESS_DENIED', req.user.id);
     return res.status(400).json({ error: err.message });
   }
 
   let riskLevel = 'Stable';
   if (news2.urgency.level === 'High Risk' || qsofa.sepsisRiskFlag) riskLevel = 'Urgent';
   else if (news2.urgency.level === 'Medium Risk' || news2.total >= 3 || qsofa.total === 1) riskLevel = 'Watch';
+
+  // The engine can only speak when it has a complete set of observations.
+  // Until then it must not show a calm "all fine" screen with no safety line:
+  // the user gets a plain instruction to seek help instead.
+  const evaluated = news2.complete === true;
 
   const missing = new Set([...(news2.missing || []), ...(qsofa.missing || [])]);
   const sensorControl = {
@@ -39,33 +101,45 @@ router.post('/analyze', async (req, res) => {
   if (vitals.temperature == null && vitals.skinTemp == null) sensorControl.deviceCollection.push('temperature');
   if (riskLevel === 'Urgent') sensorControl.actions.push('escalate_clinician_review');
 
-  await audit(req, 'READ', patient_id || req.actor?.patientId, {
-    action: 'clinical_analysis',
-    news2: news2.total,
-    qsofa: qsofa.total,
-    sensorControl,
-  });
+  await audit(req, 'READ', req.user.id);
 
-  // Consumer-friendly language (no clinical jargon on the home screen)
+  // Consumer-friendly language (no clinical jargon on the home screen).
+  // When the engine cannot evaluate (incomplete observations) the headline must
+  // say so plainly and the safety line must always tell the user to get help.
+  const headline = !evaluated
+    ? 'Not enough readings yet. If you feel unwell, get help now.'
+    : riskLevel === 'Urgent'
+    ? 'Your readings need attention. Please rest and seek help if you feel unwell.'
+    : riskLevel === 'Watch'
+    ? 'Some readings are outside the usual range. Keep monitoring.'
+    : 'Your readings look within a typical range.';
+  const nurseGreeting = !evaluated
+    ? 'Measure more vitals so we can give you a clear picture.'
+    : riskLevel === 'Urgent'
+    ? 'Please take care and consider contacting a healthcare professional.'
+    : riskLevel === 'Watch'
+    ? 'A few values are elevated — rest and check again soon.'
+    : 'Looking good. Keep tracking your wellness.';
+
   res.json({
     riskLevel,
-    headline: riskLevel === 'Urgent'
-      ? 'Your readings need attention. Please rest and seek help if you feel unwell.'
-      : riskLevel === 'Watch'
-      ? 'Some readings are outside the usual range. Keep monitoring.'
-      : 'Your readings look within a typical range.',
-    nurseGreeting: riskLevel === 'Urgent'
-      ? 'Please take care and consider contacting a healthcare professional.'
-      : riskLevel === 'Watch'
-      ? 'A few values are elevated — rest and check again soon.'
-      : 'Looking good. Keep tracking your wellness.',
+    evaluated,
+    headline,
+    nurseGreeting,
     natureContext: environment.weather
       ? `Outside it is ${environment.outsideTemp ?? '--'}°C and ${environment.weather}.`
       : null,
     supportCheck: missing.size
       ? `Measure more vitals for a fuller picture. Still needed: ${[...missing].join(', ')}.`
       : 'You have a complete set of readings.',
-    safetyNotice: riskLevel === 'Urgent' ? 'If you feel chest pain, severe shortness of breath, or confusion, seek emergency care.' : null,
+    // Never null: an emergency line is always on screen. It names the verified
+    // emergency number from configuration when one is set.
+    safetyNotice: !evaluated
+      ? safetyFallbackLine()
+      : riskLevel === 'Urgent'
+      ? `If you feel chest pain, severe shortness of breath, or confusion, seek emergency care now${EMERGENCY_NUMBER ? ` or call ${EMERGENCY_NUMBER}` : ''}.`
+      : safetyFallbackLine(),
+    emergencyNumber: EMERGENCY_NUMBER,
     stabilizationSteps: riskLevel !== 'Stable' ? ['Sit or lie down', 'Breathe slowly', 'Drink water if you can'] : [],
     warningSigns: ['Chest pain', 'Difficulty breathing', 'Confusion', 'Fainting'],
     nextAction: riskLevel === 'Urgent'
@@ -75,8 +149,12 @@ router.post('/analyze', async (req, res) => {
       : 'Continue monitoring your vitals.',
     emergencyMode: riskLevel === 'Urgent',
     clinicalScores: { news2, qsofa },
+    adultScoresAllowed: true,
     sensorControl,
   });
-});
+  });
 
-export default router;
+  return router;
+}
+
+export default createAnalyzeRouter();

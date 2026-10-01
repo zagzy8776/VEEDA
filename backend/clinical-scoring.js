@@ -1,3 +1,14 @@
+/**
+ * NEWS2 and qSOFA scoring.
+ *
+ * These are ADULT clinical tools (widely documented as validated for people
+ * aged 16+ and not for children or pregnancy). This module computes a score for
+ * whatever observations it is given and does NOT itself check age — the age
+ * gate lives at the request boundary (`backend/age-gate.js`), which every
+ * user-facing route calls before invoking these functions so an adult score is
+ * never produced for a child or an unknown age. Do not call these functions
+ * from a new route without applying `adultScoresAllowed` first.
+ */
 const RANGES = {
   heartRate: { min: 20, max: 260, unit: 'beats/min' },
   respiratoryRate: { min: 2, max: 80, unit: '/min' },
@@ -74,14 +85,20 @@ export function calculateNews2(input = {}) {
 
   if (v.oxygenSaturation.missing) missing.push('oxygenSaturation');
   else if (v.spo2Scale === 2) {
-    // NEWS2 SpO2 Scale 2 is only for patients with a clinically directed
-    // target range of 88–92%. On air, >=93% scores 0. When supplemental
-    // oxygen is present, 93–94/95–96/>=97 score 1/2/3 respectively.
+    // NEWS2 SpO2 Scale 2 is for clinician-prescribed use only, in patients
+    // (e.g. chronic CO2 retention) whose target saturation is directed to
+    // 88–92%. It MUST NOT be exposed to user self-selection — the app defaults
+    // to Scale 1 and no UI surface sets spo2Scale.
+    //
+    // Per the RCP NEWS2 chart, the 86–87% band always scores 1 regardless of
+    // supplemental oxygen. Only the >=93% bands are oxygen-conditioned:
+    // on air >=93% scores 0; on oxygen 93–94/95–96/>=97 score 1/2/3.
     components.oxygenSaturation = v.supplementalOxygen
       ? inRange(v.oxygenSaturation.value, [
           { min: 50, max: 83, score: 3 },
           { min: 84, max: 85, score: 2 },
-          { min: 86, max: 92, score: 0 },
+          { min: 86, max: 87, score: 1 },
+          { min: 88, max: 92, score: 0 },
           { min: 93, max: 94, score: 1 },
           { min: 95, max: 96, score: 2 },
           { min: 97, max: 100, score: 3 },

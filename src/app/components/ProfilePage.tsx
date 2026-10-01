@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Bell, Camera, Mic, MapPin, Shield, Save } from 'lucide-react';
+import { User, Bell, Camera, Mic, MapPin, Shield, Save, AlertTriangle, Activity, ClipboardList, ShieldCheck, Video, CloudOff } from 'lucide-react';
 import { useState } from 'react';
 import type { Profile } from '../useVedaApp';
 
@@ -35,10 +35,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts, onOpenAlerts, onOpenDetection, onOpenConditions, onOpenPrevention, onOpenPhoneChecks, onOpenConsult, onOpenCare, onOpenAccess, onExportData, onDeleteAccount }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void; onOpenAlerts?: () => void; onOpenDetection?: () => void; onOpenConditions?: () => void; onOpenPrevention?: () => void; onOpenPhoneChecks?: () => void; onOpenConsult?: () => void; onOpenCare?: () => void; onOpenAccess?: () => void; onExportData?: () => Promise<string | null>; onDeleteAccount?: (password: string, confirm: string) => Promise<{ ok: boolean; error?: string }> }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'busy' | 'done' | 'empty'>('idle');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   function set(k: keyof Profile, v: any) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -46,6 +52,27 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
     saveProfile(form);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleExport() {
+    if (!onExportData) return;
+    setExportState('busy');
+    const filename = await onExportData();
+    setExportState(filename ? 'done' : 'empty');
+    setTimeout(() => setExportState('idle'), 2500);
+  }
+
+  async function handleDelete() {
+    if (!onDeleteAccount) return;
+    setDeleteError('');
+    if (deleteConfirm !== 'DELETE') { setDeleteError('Type DELETE to confirm.'); return; }
+    setDeleting(true);
+    const result = await onDeleteAccount(deletePassword, deleteConfirm);
+    setDeleting(false);
+    if (!result.ok) { setDeleteError(result.error || 'The account could not be deleted.'); return; }
+    setDeleteOpen(false);
+    setDeletePassword(''); setDeleteConfirm('');
+    await onLogout?.();
   }
 
   async function requestPerm(key: keyof typeof perms) {
@@ -74,7 +101,7 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{form.name}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>VEDA Wellness User</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{userEmail || 'Local wellness user'}</div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '3px 10px', background: 'rgba(45,212,164,0.1)', borderRadius: 8, border: '0.5px solid rgba(45,212,164,0.2)' }}>
               <Shield size={10} style={{ color: C.teal }} />
               <span style={{ fontSize: 10, color: C.teal, fontWeight: 700 }}>Wellness Estimate Mode</span>
@@ -128,6 +155,129 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
           </Row>
         </Section>
 
+        <Section title="Data">
+          <div onClick={onOpenSummary} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenSummary ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Shield size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Shareable health summary</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Create a PDF on this device</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenReminders} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenReminders ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Bell size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Medication reminders</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Add to your phone calendar</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenBpGlucose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenBpGlucose ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Shield size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Blood pressure &amp; glucose</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Log readings and see trends</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenContacts} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenContacts ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Shield size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Emergency contacts</div>
+                <div style={{ fontSize: 11, color: C.muted }}>People to reach in an emergency</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenAlerts} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenAlerts ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertTriangle size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Environment &amp; safety alerts</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Weather, air, fire and home-safety warnings</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenDetection} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenDetection ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Activity size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Automatic detection</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Baseline learning and check-in ladder</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenConditions} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenConditions ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <ClipboardList size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Condition profiles</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Warning signs, logs and emergency card</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenPrevention} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenPrevention ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <ShieldCheck size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Prevention</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Triage, daily summary, reminders, food safety</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenPhoneChecks} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenPhoneChecks ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Camera size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Phone checks</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Guided capture (results not yet validated)</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenConsult} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenConsult ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Video size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Live consult</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Camera and voice session, per-session consent</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenCare} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenCare ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <MapPin size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Find care</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Labs, pharmacies and booking (partner-gated)</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenAccess} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenAccess ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <CloudOff size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Access &amp; offline</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Offline mode, low-data, languages, USSD/SMS</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+        </Section>
+
         <Section title="Permissions">
           {[
             { key: 'camera' as const, icon: Camera, label: 'Camera', desc: 'Heart rate measurement' },
@@ -148,11 +298,45 @@ export function ProfilePage({ profile, saveProfile }: { profile: Profile; savePr
           ))}
         </Section>
 
+        <Section title="Data & account">
+          <div style={{ padding: '12px 0', borderBottom: `0.5px solid ${C.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Export my data</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Download your readings and account data</div>
+              </div>
+              {onExportData && <button onClick={() => void handleExport()} disabled={exportState === 'busy'} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: 12, fontWeight: 700, cursor: exportState === 'busy' ? 'wait' : 'pointer' }}>{exportState === 'busy' ? 'Preparing…' : exportState === 'done' ? 'Exported ✓' : exportState === 'empty' ? 'Nothing to export' : 'Export'}</button>}
+            </div>
+          </div>
+          <div style={{ padding: '12px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#E24B4A' }}>Delete my account</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Permanently erase your account and its data</div>
+              </div>
+              {onDeleteAccount && <button onClick={() => setDeleteOpen(o => !o)} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(226,75,74,0.35)', background: 'transparent', color: '#E24B4A', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{deleteOpen ? 'Cancel' : 'Delete…'}</button>}
+            </div>
+            {deleteOpen && (
+              <div style={{ marginTop: 12, padding: 12, border: '0.5px solid rgba(226,75,74,0.3)', borderRadius: 12 }}>
+                <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 10 }}>
+                  This permanently deletes your account and all your readings. Export your data first if you want a copy. This cannot be undone.
+                </div>
+                <input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} placeholder="Your password" autoComplete="current-password" style={{ width: '100%', padding: '10px 12px', background: '#0A1220', border: `0.5px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+                <input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} placeholder="Type DELETE to confirm" style={{ width: '100%', padding: '10px 12px', background: '#0A1220', border: `0.5px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+                {deleteError && <div style={{ color: '#EF9F27', fontSize: 11, marginBottom: 8 }}>{deleteError}</div>}
+                <button onClick={() => void handleDelete()} disabled={deleting || deleteConfirm !== 'DELETE' || !deletePassword} style={{ width: '100%', padding: 11, borderRadius: 12, border: 0, background: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? 'rgba(255,255,255,0.06)' : '#E24B4A', color: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? C.muted : '#fff', fontWeight: 800, cursor: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? 'not-allowed' : 'pointer' }}>{deleting ? 'Deleting…' : 'Permanently delete my account'}</button>
+              </div>
+            )}
+          </div>
+        </Section>
+
         <motion.button whileTap={{ scale: 0.97 }} onClick={handleSave}
           style={{ width: '100%', padding: '14px', background: saved ? 'rgba(45,212,164,0.2)' : `linear-gradient(135deg,${C.teal},#1fb391)`, color: saved ? C.teal : '#04342C', borderRadius: 16, border: saved ? `1px solid ${C.teal}` : 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.3s' }}>
           <Save size={16} strokeWidth={2.2} />
           {saved ? 'Saved ✓' : 'Save Profile'}
         </motion.button>
+
+        {onLogout && <button onClick={() => void onLogout()} style={{ width: '100%', marginTop: 10, padding: 12, background: 'transparent', color: '#E24B4A', border: '1px solid rgba(226,75,74,0.35)', borderRadius: 14, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Sign out</button>}
 
         <div style={{ marginTop: 16, padding: '14px 16px', background: 'rgba(239,159,39,0.06)', border: '0.5px solid rgba(239,159,39,0.18)', borderRadius: 14, fontSize: 11, color: C.muted, lineHeight: 1.55, textAlign: 'center' }}>
           VEEDA clinical monitoring configuration.

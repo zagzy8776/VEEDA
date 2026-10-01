@@ -1,0 +1,28 @@
+{
+  "id": "referral.news2.sample",
+  "version": "0.0.0",
+  "reviewer": "NOT CLINICALLY REVIEWED",
+  "reviewDate": "2026-01-01",
+  "region": "NG",
+  "clinicallyReviewed": false,
+  "entries": [
+    {
+      "minTotal": 0,
+      "maxTotal": 0,
+      "action": "self_care",
+      "instruction": "SAMPLE BAND — replace with clinician-authored guidance. Your score is low. Keep monitoring and follow your care plan."
+    },
+    {
+      "minTotal": 1,
+      "maxTotal": 4,
+      "action": "urgent_care",
+      "instruction": "SAMPLE BAND — replace with clinician-authored guidance. Contact a clinic or health worker soon for advice."
+    },
+    {
+      "minTotal": 5,
+      "maxTotal": 100,
+      "action": "emergency",
+      "instruction": "SAMPLE BAND — replace with clinician-authored guidance. Get medical help now."
+    }
+  ]
+}
