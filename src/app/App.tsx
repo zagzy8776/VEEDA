@@ -5,10 +5,10 @@ import { BottomNav, type Route } from './components/BottomNav';
 import { HomePage } from './components/HomePage';
 import { Onboarding } from './components/Onboarding';
 import { AuthGateway } from './components/AuthGateway';
-import { apiFetch, clearLocalIdentity, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, type AuthUser } from './api';
+import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, type AuthUser } from './api';
 import { downloadReadingsCsv } from './bpGlucose';
 import { downloadContactsCsv } from './emergencyContacts';
-import { downloadCsvFile } from './download';
+import { downloadCsvFile, downloadJsonFile } from './download';
 import { useVedaApp, isFirstLaunch } from './useVedaApp';
 import type { SummarySection } from './healthSummary';
 
@@ -116,9 +116,17 @@ export default function App() {
     void completeLogout();
   }
 
+  async function handleExportAccount(): Promise<string | null> {
+    const data = await exportAccountData();
+    if (!data) return null;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadJsonFile(`veeda-account-${stamp}.json`, data);
+    return `veeda-account-${stamp}.json`;
+  }
+
   return (
     <>
-      <VedaShell user={user} authenticated={authState === 'authenticated'} onLogout={handleLogout} />
+      <VedaShell user={user} authenticated={authState === 'authenticated'} onLogout={handleLogout} onExportAccount={handleExportAccount} />
       {logoutPromptOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
           <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(239,159,39,0.45)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>
@@ -146,7 +154,7 @@ export default function App() {
   );
 }
 
-function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; authenticated: boolean; onLogout: () => Promise<void> }) {
+function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: AuthUser | null; authenticated: boolean; onLogout: () => Promise<void>; onExportAccount?: () => Promise<string | null> }) {
   const [route, setRoute] = useState<Route>('home');
   const [chatOpen, setChatOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -197,7 +205,7 @@ function VedaShell({ user, authenticated, onLogout }: { user: AuthUser | null; a
             {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
             {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></div>}
             {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} /></div>}
+            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />

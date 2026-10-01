@@ -27,6 +27,8 @@ const PROTECTED_ROUTES = [
   { method: 'POST', path: '/api/triage/referral' },
   { method: 'POST', path: '/api/consent' },
   { method: 'GET', path: '/api/consent' },
+  { method: 'GET', path: '/api/account/export' },
+  { method: 'DELETE', path: '/api/account' },
   { method: 'GET', path: '/api/map/context' },
   { method: 'POST', path: '/api/map/context' },
   { method: 'GET', path: '/api/map/nearby' },

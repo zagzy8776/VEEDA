@@ -35,10 +35,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders, onOpenBpGlucose, onOpenContacts, onExportData, onDeleteAccount }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void; onOpenBpGlucose?: () => void; onOpenContacts?: () => void; onExportData?: () => Promise<string | null>; onDeleteAccount?: (password: string, confirm: string) => Promise<{ ok: boolean; error?: string }> }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'busy' | 'done' | 'empty'>('idle');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   function set(k: keyof Profile, v: any) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -46,6 +52,27 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
     saveProfile(form);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleExport() {
+    if (!onExportData) return;
+    setExportState('busy');
+    const filename = await onExportData();
+    setExportState(filename ? 'done' : 'empty');
+    setTimeout(() => setExportState('idle'), 2500);
+  }
+
+  async function handleDelete() {
+    if (!onDeleteAccount) return;
+    setDeleteError('');
+    if (deleteConfirm !== 'DELETE') { setDeleteError('Type DELETE to confirm.'); return; }
+    setDeleting(true);
+    const result = await onDeleteAccount(deletePassword, deleteConfirm);
+    setDeleting(false);
+    if (!result.ok) { setDeleteError(result.error || 'The account could not be deleted.'); return; }
+    setDeleteOpen(false);
+    setDeletePassword(''); setDeleteConfirm('');
+    await onLogout?.();
   }
 
   async function requestPerm(key: keyof typeof perms) {
@@ -189,6 +216,38 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
               <Toggle on={perms[key]} onChange={() => requestPerm(key)} />
             </div>
           ))}
+        </Section>
+
+        <Section title="Data & account">
+          <div style={{ padding: '12px 0', borderBottom: `0.5px solid ${C.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Export my data</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Download your readings and account data</div>
+              </div>
+              {onExportData && <button onClick={() => void handleExport()} disabled={exportState === 'busy'} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: 12, fontWeight: 700, cursor: exportState === 'busy' ? 'wait' : 'pointer' }}>{exportState === 'busy' ? 'Preparing…' : exportState === 'done' ? 'Exported ✓' : exportState === 'empty' ? 'Nothing to export' : 'Export'}</button>}
+            </div>
+          </div>
+          <div style={{ padding: '12px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#E24B4A' }}>Delete my account</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Permanently erase your account and its data</div>
+              </div>
+              {onDeleteAccount && <button onClick={() => setDeleteOpen(o => !o)} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(226,75,74,0.35)', background: 'transparent', color: '#E24B4A', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{deleteOpen ? 'Cancel' : 'Delete…'}</button>}
+            </div>
+            {deleteOpen && (
+              <div style={{ marginTop: 12, padding: 12, border: '0.5px solid rgba(226,75,74,0.3)', borderRadius: 12 }}>
+                <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 10 }}>
+                  This permanently deletes your account and all your readings. Export your data first if you want a copy. This cannot be undone.
+                </div>
+                <input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} placeholder="Your password" autoComplete="current-password" style={{ width: '100%', padding: '10px 12px', background: '#0A1220', border: `0.5px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+                <input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} placeholder="Type DELETE to confirm" style={{ width: '100%', padding: '10px 12px', background: '#0A1220', border: `0.5px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+                {deleteError && <div style={{ color: '#EF9F27', fontSize: 11, marginBottom: 8 }}>{deleteError}</div>}
+                <button onClick={() => void handleDelete()} disabled={deleting || deleteConfirm !== 'DELETE' || !deletePassword} style={{ width: '100%', padding: 11, borderRadius: 12, border: 0, background: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? 'rgba(255,255,255,0.06)' : '#E24B4A', color: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? C.muted : '#fff', fontWeight: 800, cursor: (deleting || deleteConfirm !== 'DELETE' || !deletePassword) ? 'not-allowed' : 'pointer' }}>{deleting ? 'Deleting…' : 'Permanently delete my account'}</button>
+              </div>
+            )}
+          </div>
         </Section>
 
         <motion.button whileTap={{ scale: 0.97 }} onClick={handleSave}

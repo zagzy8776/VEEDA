@@ -144,6 +144,39 @@ export function withdrawConsentRecord(feature: string, version: string): Promise
   return syncConsentRecord(feature, version, false);
 }
 
+/**
+ * Fetch everything this account owns from the server-of-record as a portable
+ * JSON document (owned readings, consent history). Returns null when offline or
+ * signed out, so a caller can fall back to the on-device export.
+ */
+export async function exportAccountData(): Promise<Record<string, unknown> | null> {
+  return apiFetch<Record<string, unknown>>('/api/account/export');
+}
+
+export interface DeleteAccountResult {
+  ok: boolean;
+  /** Present when the server rejected the request. */
+  error?: string;
+}
+
+/**
+ * Hard-erase this account on the server-of-record. Both the password and the
+ * typed word "DELETE" are sent so the server can re-check them; this never
+ * erases locally on its own — the caller clears device data only on success.
+ */
+export async function deleteAccount(password: string, confirm: string): Promise<DeleteAccountResult> {
+  try {
+    const { response, data } = await request<{ error?: string }>('/api/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ password, confirm }),
+    });
+    if (response.ok) return { ok: true };
+    return { ok: false, error: data?.error || 'The account could not be deleted.' };
+  } catch {
+    return { ok: false, error: 'Could not reach the server.' };
+  }
+}
+
 function jsonHeaders(opts: RequestInit): Headers {
   const headers = new Headers(opts.headers || {});
   if (!headers.has('Content-Type') && opts.body !== undefined) headers.set('Content-Type', 'application/json');

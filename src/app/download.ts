@@ -15,3 +15,14 @@ export function downloadCsvFile(filename: string, csv: string): void {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Download a JSON document (the full account export) in the same way. */
+export function downloadJsonFile(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

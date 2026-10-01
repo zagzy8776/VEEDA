@@ -13,6 +13,7 @@ the primary branch.
 | 004 | `004_patient_identity_mappings.sql` | Creates `patient_identity_mappings` (user ↔ tenant ↔ legacy_patient_id) with two uniqueness constraints. | **Yes.** `CREATE TABLE IF NOT EXISTS`. |
 | 005 | `005_ownership_indexes.sql` | Adds owner/timestamp indexes on `biometric_events`, `raw_biometrics`, and `clinical_summaries` for per-user history queries. | **Yes.** `CREATE INDEX IF NOT EXISTS`. |
 | 006 | `006_consent_records.sql` | Creates the `consent_records` table: one row per `(user_id, feature, consent_version)` holding `granted`, `recorded_at`, and `tenant_id`, plus a lookup index. This is the durable, auditable consent record (localStorage is only a cache). | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. |
+| 007 | `007_audit_logs_actor_fk.sql` | Drops the foreign key `audit_logs.actor_user_id → users(id)` (added in 003) and leaves the column as a plain UUID. `audit_logs` is append-only, so the DB could not null or cascade that reference and a user with any audit row could not be deleted. The append-only triggers are **not** touched; the audit trail is kept, holding ids only. | **Yes.** `DROP CONSTRAINT IF EXISTS` is a no-op once the constraint is gone. |
 
 ## Notes
 
@@ -20,4 +21,7 @@ the primary branch.
   reasonable way to bring a branch up to date.
 - 003 and 005 assume the base tables exist. If they do not, apply 001 first and
   create the base schema before continuing.
-- Nothing here is destructive: no table, column, or index is dropped or renamed.
+- Nothing here is destructive to health data: no table, column, or index holding
+  readings is dropped or renamed. 007 drops a single foreign-key constraint (not
+  the column and not any data) so an account erase can remove the user row; the
+  audit rows remain.

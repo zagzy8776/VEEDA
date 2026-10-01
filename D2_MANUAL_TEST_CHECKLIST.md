@@ -95,6 +95,30 @@ auto-dial and no guessed digits**.
    denied the message still works without it.
 5. Sign out, then sign in as a different user on the same device: the first user's
    contacts must NOT appear (the per-user key is cleared on logout).
+
+### Export my data (account)
+
+1. Open **Profile → Data & account → Export**. Confirm a
+   `veeda-account-<date>.json` file downloads that contains your owned readings
+   and your consent history.
+2. Sign out and confirm **Export** shows "Could not reach the server" / is inert
+   (the server export requires a signed-in session).
+
+### Delete my account (hard erase)
+
+1. Open **Profile → Data & account → Delete…**. Confirm the confirm button is
+   disabled until BOTH the password is entered AND `DELETE` is typed exactly.
+2. Type `delete` (lower-case) and confirm deletion is refused (the word is
+   case-sensitive).
+3. Type a wrong password: the server returns "Password is incorrect" and nothing
+   is deleted.
+4. With the right password and `DELETE`, confirm the account is erased and you are
+   signed out. Then sign in again: the account no longer exists and no readings
+   remain.
+5. On a **real Postgres** (a Neon test branch), confirm the erase succeeds even
+   when the user has `audit_logs` rows (this proves migration 007 was applied).
+   The in-memory tests cannot catch a missing 007.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

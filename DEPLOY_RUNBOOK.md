@@ -48,6 +48,7 @@ statement set at a time:
 | 4 | `backend/migrations/004_patient_identity_mappings.sql` |
 | 5 | `backend/migrations/005_ownership_indexes.sql` |
 | 6 | `backend/migrations/006_consent_records.sql` |
+| 7 | `backend/migrations/007_audit_logs_actor_fk.sql` |
 
 Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
 
@@ -55,10 +56,14 @@ Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
   hazard — but still run them one at a time so a failure is easy to isolate.
 - 003 and 005 assume the base tables (`biometric_events`, `raw_biometrics`,
   `clinical_summaries`, `audit_logs`) already exist.
+- 007 drops only the `audit_logs.actor_user_id` foreign key (the column and the
+  append-only triggers stay). Run it on a real Postgres — the FK behaviour it
+  fixes cannot be exercised by the in-memory tests.
 
 **Verify:** after each file, the expected table/column/index exists (e.g.
 `\dt` shows `users`, `refresh_tokens`, `patient_identity_mappings`,
-`consent_records`; `\d biometric_events` shows `owner_user_id`).
+`consent_records`; `\d biometric_events` shows `owner_user_id`). After 007,
+`\d audit_logs` must show `actor_user_id` with **no** foreign-key constraint.
 
 **Rollback:** migrations are non-destructive (no drops, no renames). To back out,
 reset the Neon branch to the step-1 backup branch, then fix the migration and

@@ -69,3 +69,23 @@ export async function resolveLegacyPatientId({ db, tenantId, userId }) {
   );
   return rows[0]?.legacy_patient_id || userId;
 }
+
+/**
+ * Every legacy patient_id text that maps to this user, so an account erase can
+ * also remove rows written before ownership columns existed (and never
+ * back-filled). Returns the mapped legacy ids plus the user's own UUID as text,
+ * de-duplicated, so a row matched by either path is caught.
+ */
+export async function legacyPatientIdsForUser({ db, tenantId, userId }) {
+  const { rows } = await db.query(
+    `SELECT legacy_patient_id
+     FROM patient_identity_mappings
+     WHERE tenant_id = $1 AND user_id = $2`,
+    [tenantId, userId],
+  );
+  const ids = new Set([String(userId)]);
+  for (const row of rows) {
+    if (row.legacy_patient_id) ids.add(String(row.legacy_patient_id));
+  }
+  return [...ids];
+}
