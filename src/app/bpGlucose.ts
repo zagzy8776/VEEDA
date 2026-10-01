@@ -38,6 +38,9 @@ export interface ValidationResult {
 
 export const CHECK_VALUE_MESSAGE = 'Check this value — it looks like it may be a typo.';
 
+/** Honest storage-limits note shown on the BP/glucose screen. */
+export const DEVICE_ONLY_NOTE = 'Stored on this device only. Export to keep a copy.';
+
 // Plausibility bounds only. These catch typos (e.g. 1200, or 12.0 in the wrong
 // unit); they deliberately do NOT encode any clinical threshold. Whether a
 // value is "high" or "low" is a clinical judgement this app does not make.

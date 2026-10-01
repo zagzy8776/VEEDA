@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import {
   CALENDAR_DEPENDENCY_NOTE,
+  DEVICE_ONLY_NOTE,
   buildReminderIcs,
   reminderFilename,
   type Frequency,
@@ -71,9 +72,10 @@ export function RemindersPage({ open, onClose, userId }: RemindersPageProps) {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
         style={{ width: '100%', maxWidth: 360, maxHeight: '86vh', overflowY: 'auto', background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, padding: 20, color: C.text }}>
         <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Medication reminder</div>
-        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, marginBottom: 6 }}>
           {CALENDAR_DEPENDENCY_NOTE}
         </div>
+        <div style={{ fontSize: 11, color: '#EF9F27', marginBottom: 14 }}>{DEVICE_ONLY_NOTE}</div>
 
         <label style={{ display: 'block', fontSize: 12, color: C.muted, marginBottom: 4 }}>Name (optional — you can use a label like “Morning tablet”)</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Morning tablet" disabled={!consentedNow}

@@ -32,6 +32,9 @@ export const NEUTRAL_FALLBACK_LABEL = 'Medication reminder';
 export const CALENDAR_DEPENDENCY_NOTE =
   'Reminders depend on your phone\u2019s calendar app. Check that notifications are on.';
 
+/** Honest storage-limits note shown on the reminders screen. */
+export const DEVICE_ONLY_NOTE = 'Stored on this device only. Export to keep a copy.';
+
 // Never emit a drug name the user did not type; fall back to a neutral label.
 export function reminderSummary(input: ReminderInput): string {
   const name = (input.medicationName ?? '').trim();

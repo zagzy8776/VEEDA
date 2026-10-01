@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   CHECK_VALUE_MESSAGE,
+  DEVICE_ONLY_NOTE,
   addReading,
   bpTrend,
   buildReadingsCsv,
@@ -87,6 +88,7 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
         <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 14 }}>
           These are your own readings. VEEDA stores the number and the unit you choose and does not label any value as high or low.
         </div>
+        <div style={{ fontSize: 10.5, color: C.amber, marginBottom: 14 }}>{DEVICE_ONLY_NOTE}</div>
 
         {!consentedNow ? (
           <>
