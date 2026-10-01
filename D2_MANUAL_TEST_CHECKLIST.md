@@ -128,6 +128,28 @@ auto-dial and no guessed digits**.
    **Delete my synced readings** and confirm the server copy is gone (the local
    device log is untouched).
 5. Confirm the server rejects an impossible value: post a reading with
+
+### Family profiles (dependants) + age gate
+
+1. Signed in, open the header switcher. With no family profiles it shows only
+   **Me** (and the switcher may be hidden). Add a family profile via
+   `POST /api/dependents` (or the UI) and confirm it appears in the switcher.
+2. Switch to the profile: readings shown/saved are scoped to that profile, and the
+   account owner's readings are not shown for it.
+3. Confirm a dependant is guardian-only: sign in as another account and confirm
+   the first guardian's profiles are NOT visible, and `GET /api/dependents`
+   returns only the signed-in guardian's list.
+4. **Age gate (clinical):** add a dependant with age `8`, switch to them, and open
+   the clinical chat. Confirm the reply/header says **"Not validated for
+   children"** and shows NO NEWS2 or qSOFA score.
+5. Add a dependant with **no age**, switch to them, and confirm the same "not
+   validated" behavior (unknown age is never scored).
+6. Set `VITE_ADULT_AGE_CUTOFF` to a different value, rebuild, and confirm the same
+   age is reclassified at the new cutoff (the cutoff is configuration, not a
+   hard-coded number).
+7. Sign out on a shared device and confirm the selected subject is cleared (the
+   next user does not inherit the previous person's switcher selection).
+
    `systolic` below `diastolic` directly to `/api/readings` and confirm it is
    returned in `rejected`, not stored.
 

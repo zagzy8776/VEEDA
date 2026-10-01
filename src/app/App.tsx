@@ -5,8 +5,9 @@ import { BottomNav, type Route } from './components/BottomNav';
 import { HomePage } from './components/HomePage';
 import { Onboarding } from './components/Onboarding';
 import { AuthGateway } from './components/AuthGateway';
-import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, logout, restoreSession, syncConsentedReadings, type AuthUser } from './api';
+import { apiFetch, clearLocalIdentity, deleteAccount, exportAccountData, getLegacyPatientId, hasPendingLocalReadings, listDependents, logout, restoreSession, syncConsentedReadings, type AuthUser, type ServerDependent } from './api';
 import { hasConsent } from './consent';
+import { SELF_SUBJECT, activeSubject, adultScoresAllowed, setActiveSubject } from './dependents';
 import { downloadReadingsCsv } from './bpGlucose';
 import { downloadContactsCsv } from './emergencyContacts';
 import { downloadCsvFile, downloadJsonFile } from './download';
@@ -172,6 +173,8 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
   const [bpGlucoseOpen, setBpGlucoseOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !isFirstLaunch());
+  const [dependents, setDependents] = useState<ServerDependent[]>([]);
+  const [activeSubjectId, setActiveSubjectId] = useState<string>(() => (user ? activeSubject(window.localStorage, user.id) : SELF_SUBJECT));
   const app = useVedaApp();
   const emergencyMode = app.analysis?.riskLevel === 'Urgent';
   const [legacyId, setLegacyId] = useState<string | null>(() => authenticated ? getLegacyPatientId() : null);
@@ -181,6 +184,30 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
   useEffect(() => {
     if (!authenticated || !user || !claimKey || localStorage.getItem(claimKey)) setLegacyId(null);
   }, [authenticated, user, claimKey]);
+
+  // Load this guardian's family profiles once signed in, and keep the selected
+  // subject valid (fall back to the account owner if it no longer exists).
+  useEffect(() => {
+    if (!authenticated || !user) { setDependents([]); return; }
+    let cancelled = false;
+    void listDependents().then(list => {
+      if (cancelled) return;
+      setDependents(list);
+      setActiveSubjectId(current => (current === SELF_SUBJECT || list.some(d => d.id === current)) ? current : SELF_SUBJECT);
+    });
+    return () => { cancelled = true; };
+  }, [authenticated, user?.id]);
+
+  function chooseSubject(id: string) {
+    setActiveSubjectId(id);
+    if (user) setActiveSubject(window.localStorage, user.id, id);
+  }
+
+  // Adult-only scores (NEWS2/qSOFA) are shown only for the account owner or a
+  // dependant known to be at/above the configured adult cutoff. A child or an
+  // unknown age gets "not validated for children" instead.
+  const activeDependent = dependents.find(d => d.id === activeSubjectId) || null;
+  const scoresAllowed = activeSubjectId === SELF_SUBJECT || adultScoresAllowed(activeDependent?.age ?? null);
 
   async function claimLegacyId() {
     if (!legacyId) return;
@@ -208,7 +235,9 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
   return (
     <div style={{ minHeight: '100dvh', background: 'radial-gradient(circle at 18% 10%, rgba(45,212,164,0.18), transparent 30%),radial-gradient(circle at 86% 16%, rgba(55,138,221,0.16), transparent 28%),radial-gradient(circle at 50% 100%, rgba(45,212,164,0.08), transparent 34%),' + (emergencyMode ? '#170608' : '#07101D') }}>
       <div style={{ maxWidth: 390, margin: '0 auto', minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: emergencyMode ? 'rgba(22,6,8,0.95)' : 'rgba(9,14,26,0.88)', position: 'relative', overflow: 'hidden', borderLeft: emergencyMode ? '2px solid rgba(226,75,74,0.7)' : '0.5px solid rgba(255,255,255,0.04)', borderRight: emergencyMode ? '2px solid rgba(226,75,74,0.7)' : '0.5px solid rgba(255,255,255,0.04)', boxShadow: emergencyMode ? '0 0 0 4px rgba(226,75,74,0.22), 0 0 90px rgba(226,75,74,0.22)' : '0 0 80px rgba(0,0,0,0.5)' }}>
-          <Header wellnessScore={app.wellnessScore} status={app.backendStatus} riskLevel={app.analysis?.riskLevel ?? null} />
+          <Header wellnessScore={app.wellnessScore} status={app.backendStatus} riskLevel={app.analysis?.riskLevel ?? null}
+            subjects={[{ id: SELF_SUBJECT, label: 'Me' }, ...dependents.map(d => ({ id: d.id, label: d.display_name }))]}
+            activeSubjectId={activeSubjectId} onSelectSubject={chooseSubject} />
         <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ErrorBoundary><Suspense fallback={<LoadingPane />}><AnimatePresence mode="wait" initial={false}>
             {route === 'home' && <div key="home" style={{ position: 'absolute', inset: 0 }}><HomePage app={app} onOpenChat={() => setChatOpen(true)} /></div>}
@@ -224,7 +253,7 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
       <Suspense fallback={null}>{remindersOpen && <RemindersPage open={remindersOpen} onClose={() => setRemindersOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{bpGlucoseOpen && <BpGlucosePage open={bpGlucoseOpen} onClose={() => setBpGlucoseOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{contactsOpen && <EmergencyContactsPage open={contactsOpen} onClose={() => setContactsOpen(false)} userId={user?.id ?? 'local'} locationText={app.location.lat != null && app.location.lng != null ? `${app.location.lat.toFixed(4)}, ${app.location.lng.toFixed(4)}` : undefined} userName={app.profile?.name} />}</Suspense>
-      <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} saveBiometric={app.saveBiometric} />}</Suspense>
+      <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} saveBiometric={app.saveBiometric} adultScoresAllowed={scoresAllowed} subjectLabel={activeDependent?.display_name} />}</Suspense>
       {legacyId && <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(45,212,164,0.35)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>
           <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Link previous VEEDA data?</div>

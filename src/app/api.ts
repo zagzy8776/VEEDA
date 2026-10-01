@@ -1,6 +1,7 @@
 import { readingsStorageKey } from './bpGlucose.ts';
 import { consentStorageKey } from './consent.ts';
 import { contactsStorageKey } from './emergencyContacts.ts';
+import { activeSubjectKey } from './dependents.ts';
 import { pendingSyncKey, syncReadings, syncedIdsKey } from './readingsSync.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
 
@@ -31,6 +32,7 @@ export function perUserDeviceKeys(userId: string): string[] {
     contactsStorageKey(userId),
     pendingSyncKey(userId),
     syncedIdsKey(userId),
+    activeSubjectKey(userId),
   ];
 }
 
@@ -174,6 +176,35 @@ export async function deleteSyncedReadings(): Promise<{ ok: boolean; error?: str
     return { ok: false, error: data?.error || 'The synced readings could not be deleted.' };
   } catch {
     return { ok: false, error: 'Could not reach the server.' };
+  }
+}
+
+export interface ServerDependent {
+  id: string;
+  display_name: string;
+  age: number | null;
+}
+
+/** The guardian's family profiles (dependants) from the server-of-record. */
+export async function listDependents(): Promise<ServerDependent[]> {
+  const data = await apiFetch<{ dependents?: ServerDependent[] }>('/api/dependents');
+  return data?.dependents ?? [];
+}
+
+export async function addDependent(displayName: string, age?: number | null): Promise<ServerDependent | null> {
+  const data = await apiFetch<{ dependent?: ServerDependent }>('/api/dependents', {
+    method: 'POST',
+    body: JSON.stringify({ displayName, age: age ?? null }),
+  });
+  return data?.dependent ?? null;
+}
+
+export async function removeDependent(id: string): Promise<boolean> {
+  try {
+    const { response } = await request<unknown>(`/api/dependents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 

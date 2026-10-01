@@ -50,6 +50,7 @@ statement set at a time:
 | 6 | `backend/migrations/006_consent_records.sql` |
 | 7 | `backend/migrations/007_audit_logs_actor_fk.sql` |
 | 8 | `backend/migrations/008_readings.sql` |
+| 9 | `backend/migrations/009_dependents.sql` |
 
 Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
 
@@ -60,6 +61,7 @@ Run each with the Neon SQL editor or `psql "$DATABASE_URL" -f <file>`.
 - 007 drops only the `audit_logs.actor_user_id` foreign key (the column and the
   append-only triggers stay). Run it on a real Postgres — the FK behaviour it
   fixes cannot be exercised by the in-memory tests.
+- 009 adds `readings.dependent_id`; run 008 first so the `readings` table exists.
 
 **Verify:** after each file, the expected table/column/index exists (e.g.
 `\dt` shows `users`, `refresh_tokens`, `patient_identity_mappings`,
@@ -105,6 +107,7 @@ server at boot; a missing *optional* name disables a feature.
 |------|------------------------|
 | `PORT` | Defaults to `10000` (Render's expected port). |
 | `DEFAULT_TENANT_ID` | Defaults to `default`; used for the legacy-ID claim mapping. |
+| `VITE_ADULT_AGE_CUTOFF` | Build-time. Age at or above which adult-only scores (NEWS2/qSOFA) may be shown for a family profile. A clinician sets this. If unset the app defaults to **16** (a child or unknown age is never scored, and shows "Not validated for children"). |
 | `BACKEND_URL` | Fitbit OAuth callback URL is built without a base host; the Fitbit connect flow breaks. |
 | `FITBIT_CLIENT_ID` | Fitbit integration is disabled (`/api/integrations` reports "Fitbit not configured"). |
 | `FITBIT_CLIENT_SECRET` | Same as above — the two are checked together. |
