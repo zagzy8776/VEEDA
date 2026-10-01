@@ -115,7 +115,16 @@ output is DISABLED ("not yet validated") because no validated model is registere
 
 ## Phase 7 — Connection to care and the AI doctor
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Find a lab or pharmacy | framework only | `care.ts` search over the map; prices/stock ONLY from a configured partner, else "unknown". |
+| Book a real doctor | framework only | Gated OFF (`carePartnerBooking`); needs a configured care partner. |
+| Clinician review queue | working | `backend/routes/review-queue.js` + migration 010: role-gated, SLA, derived escalation, audit trail, reviewer sign-off. |
+| Intake before any advice | working | `careFlow.ts` blocks advice until required intake answers exist. |
+| Red-flag referral | working | Surfaced as a referral, never as advice. |
+| Explainable results | working | `explainResult()` returns inputs + sources + pack provenance + model version + disclaimer. |
+| One-model-per-task registry | working | `modelRegistry.ts` (Phase 2); version pinning + validation requirements. |
+| Controlled model updates / version pinning | working | Registry pins an approved version; updates are explicit. |
 
 ## Phase 8 — Access
 

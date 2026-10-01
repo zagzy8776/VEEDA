@@ -267,6 +267,22 @@ auto-dial and no guessed digits**.
 5. Confirm the language framework lists English, Pidgin, Igbo, Yoruba and Hausa and
    that a missing language falls back to English rather than showing blank text.
 
+### Connection to care (Phase 7)
+
+1. Open **Profile → Find care**. With no partner configured, prices and stock are
+   absent and **Book a doctor** reads "not available yet: no care partner is
+   configured".
+2. Confirm intake is required before advice: request advice with a required question
+   unanswered and confirm it is **blocked** with a plain message.
+3. Confirm a red-flag referral is shown as a referral, never as advice.
+4. Confirm every result shows its inputs, their sources, the pack provenance/model
+   version and the "not a diagnosis" disclaimer.
+5. Review-queue (admin/clinician): `POST /api/review-queue` enqueues with an SLA
+   deadline; `PATCH /api/review-queue/:id` is refused for a patient role and records
+   reviewer sign-off for a clinician role. An unresolved item past its SLA is returned
+   with `escalated: true`. Confirm these against a Neon test branch with migration 010
+   applied (the in-memory tests cannot prove 010 exists).
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

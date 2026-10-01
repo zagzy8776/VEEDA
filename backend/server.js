@@ -19,6 +19,7 @@ import account from './routes/account.js';
 import readings from './routes/readings.js';
 import dependents from './routes/dependents.js';
 import alerts from './routes/alerts.js';
+import reviewQueue from './routes/review-queue.js';
 import adminDebug from './routes/admin-debug.js';
 import { requireAuth } from './security.js';
 
@@ -92,6 +93,7 @@ app.use('/api', account);
 app.use('/api', readings);
 app.use('/api', dependents);
 app.use('/api', alerts);
+app.use('/api', reviewQueue);
 app.use('/api/map', map);
 app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);
