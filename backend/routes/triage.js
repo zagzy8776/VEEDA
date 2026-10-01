@@ -6,7 +6,10 @@ import { calculateNews2 } from '../clinical-scoring.js';
 import { evaluateReferral } from '../triage/referral.js';
 
 const router = Router();
-const EMERGENCY_NUMBER = process.env.EMERGENCY_NUMBER || '112';
+// The emergency number is verified configuration, never hard-coded. When it is
+// not set the deployment must say "call your local emergency number" instead of
+// naming a guessed default.
+const EMERGENCY_NUMBER = process.env.EMERGENCY_NUMBER || null;
 
 // The referral band pack is clinician-authored content. In production a real,
 // reviewed pack must be supplied by path (REFERRAL_PACK_PATH); otherwise the

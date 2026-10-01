@@ -5,7 +5,8 @@ import { biometricToFhirObservation } from '../fhir.js';
 import { clinicalChatReply, getBiometricContext } from '../clinical-context.js';
 import { ownershipPredicate, resolveLegacyPatientId } from '../ownership.js';
 const router = Router();
-const EMERGENCY_NUMBER = process.env.EMERGENCY_NUMBER || '112';
+// Verified configuration only; no guessed default (matches analyze.js/triage.js).
+const EMERGENCY_NUMBER = process.env.EMERGENCY_NUMBER || null;
 
 router.get('/wellness-history', requirePatientAccess('READ'), async (req, res) => {
   const days = parseInt(req.query.days) || 7;

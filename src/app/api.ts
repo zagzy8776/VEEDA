@@ -1,5 +1,6 @@
 import { readingsStorageKey } from './bpGlucose.ts';
 import { consentStorageKey } from './consent.ts';
+import { recordEmergencyNumber } from './emergencyNumber.ts';
 
 const BASE = '';
 const REQUESTED_WITH = 'XMLHttpRequest';
@@ -260,6 +261,12 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}, allowRef
       if (refreshed) return apiFetch<T>(path, opts, false);
     }
     if (!result.response.ok) return null;
+    // Any response that carries a verified emergency number refreshes the
+    // in-memory value and the device cache, so SOS keeps working later even
+    // when the backend is slow or offline.
+    if (result.data && typeof result.data === 'object' && 'emergencyNumber' in result.data) {
+      recordEmergencyNumber((result.data as { emergencyNumber?: string | null }).emergencyNumber);
+    }
     return result.data;
   } catch {
     return null;

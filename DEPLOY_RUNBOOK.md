@@ -90,7 +90,7 @@ server at boot; a missing *optional* name disables a feature.
 |------|------------------------|
 | `JWT_ISSUER` | Defaults to `veeda-api`; tokens are issued/verified under the default. Only a problem if you intended a different issuer. |
 | `JWT_AUDIENCE` | Defaults to `veeda-client`; same caveat as above. |
-| `EMERGENCY_NUMBER` | No number is shown or dialled. `/api/analyze` and `/api/triage/referral` fall back to the plain line "call your local emergency number" (never a guessed default). **Set this.** |
+| `EMERGENCY_NUMBER` | **A loud startup warning is printed in production** (`server.js`): the app will not show or dial a verified number, and `/api/analyze` + `/api/triage/referral` fall back to the plain line "call your local emergency number" (never a guessed default). **Set this to the region's official number.** |
 | `REFERRAL_PACK_PATH` | In production the referral engine loads no pack and returns `unavailable` for every score (fail-safe). The red-flag referral screen will not give a recommendation. **Set this to a clinically-reviewed pack before go-live.** |
 
 ### Optional / feature flags
@@ -124,6 +124,28 @@ Notes:
 - `JWT_SECRET` under 32 characters fails the boot assertion.
 - `ENABLE_PROXY_DEBUG` must be off once you have finished checking
   `/api/admin/proxy-debug`.
+
+### `EMERGENCY_NUMBER` is required in production
+
+Set `EMERGENCY_NUMBER` on Render to the deployment region's **official**
+emergency number. It is treated as a required value for go-live:
+
+- **Startup warning (loud, not fatal):** when `NODE_ENV=production` and
+  `EMERGENCY_NUMBER` is unset, `server.js` prints a boxed `WARNING:` block to the
+  Render logs on boot. A missing value does **not** stop the server (a
+  safety-critical route must not go dark), but the warning is unmissable in the
+  log — treat its presence as a **release blocker**.
+- **What the user gets without it:** no number is shown or dialled anywhere.
+  `/api/analyze`, `/api/triage/referral` and the client all fall back to the
+  plain line **"If you feel very unwell, get medical help now or call your local
+  emergency number."** The SOS screen shows no countdown and offers no auto-dial.
+- **Never guess the digits.** The value is verified deployment config only.
+
+For a Nigeria deployment the verified number is **112** (unified national
+emergency number). Source: the Federal Republic of Nigeria's unified emergency
+line as published in the public emergency-numbers reference — confirm against the
+Nigerian Communications Commission (NCC) numbering page for your region before
+go-live and record the confirmation. Do not ship an unverified default.
 
 **Verify:** the service restarts cleanly and the logs show no missing-env errors.
 

@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { apiFetch, getActor } from '../api';
+import { emergencyHelpLine, resolveEmergencyNumber } from '../emergencyNumber';
 import type { Vitals, Analysis, Profile } from '../useVedaApp';
 
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', border: 'rgba(255,255,255,0.09)' };
@@ -59,9 +60,12 @@ function buildReply(msg: string, vitals: Vitals, analysis: Analysis | null): str
   if (m.includes('score') || m.includes('news') || m.includes('risk')) return `${scoreLine}\n${qsofaLine}`;
   if (m.includes('temperature') || m.includes('fever') || m.includes('temp')) return `${scoreLine}\nTemperature: ${vitals.skinTemp ?? 'not recorded'}°C.`;
   if (m.includes('emergency') || m.includes('help') || m.includes('urgent')) {
-    const line = analysis?.safetyNotice || (analysis?.emergencyNumber
-      ? `If you feel very unwell, get medical help now or call ${analysis.emergencyNumber}.`
-      : 'If you feel very unwell, get medical help now or call your local emergency number.');
+    // Prefer the backend-provided line, then a verified number (backend value,
+    // device cache, or build-time fallback). With none available we say "call
+    // your local emergency number" — never a guessed number.
+    const number = resolveEmergencyNumber();
+    const line = analysis?.safetyNotice
+      || (number ? `If you feel very unwell, get medical help now or call ${number}.` : emergencyHelpLine());
     return `${scoreLine}\n${line}`;
   }
   return `${scoreLine}\n${qsofaLine}`;

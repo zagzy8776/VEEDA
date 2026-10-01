@@ -29,6 +29,22 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   throw new Error('FRONTEND_URL must contain at least one allowed origin in production.');
 }
 
+// Production must not go live without a verified emergency number: without it the
+// safety line degrades to "call your local emergency number" and the SOS screen
+// cannot name a number to dial. This is a loud, unmissable startup warning — not
+// a hard boot failure, so a misconfigured deploy still serves (and can be fixed)
+// rather than going dark on a safety-critical route.
+if (process.env.NODE_ENV === 'production' && !process.env.EMERGENCY_NUMBER) {
+  console.warn(
+    '\n' + '='.repeat(72) +
+    '\n  WARNING: EMERGENCY_NUMBER is not set in production.' +
+    '\n  The app will NOT show or dial a verified emergency number — SOS and the' +
+    '\n  get-help line fall back to "call your local emergency number".' +
+    '\n  Set EMERGENCY_NUMBER on Render to the region\'s official number before go-live.' +
+    '\n' + '='.repeat(72) + '\n',
+  );
+}
+
 // Browser -> Vercel rewrite -> Render is two proxy hops. A fixed hop count
 // resolves the browser address without trusting an arbitrary left-most value.
 // The preview diagnostic below must confirm that Vercel/Render overwrite the

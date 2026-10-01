@@ -25,7 +25,7 @@ Copy `.env.example` to `.env`:
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_EMERGENCY_NUMBER` | Emergency number (default: 112) |
+| `VITE_EMERGENCY_NUMBER` | Optional build-time fallback emergency number (e.g. `112`). The backend `EMERGENCY_NUMBER` always overrides it; the app also caches the last verified value on the device so SOS still works offline. With none set, the UI says "call your local emergency number" and never auto-dials. |
 
 Local-only users can use device measurements without an account. Authenticated users are identified by the backend JWT; no hospital / tenant / patient ID is entered in the browser.
 

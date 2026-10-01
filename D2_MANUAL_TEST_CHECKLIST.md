@@ -56,3 +56,47 @@
 4. Confirm `req.ip` is the real browser/client address and that the forwarded chain is the expected Vercel → Render shape.
 5. Send a direct request with a fake `X-Forwarded-For` header and confirm it cannot select an arbitrary login rate-limit identity; the defensive limiter must fall back to the immediate proxy peer for an unexpected chain.
 6. Set `ENABLE_PROXY_DEBUG=false` before release.
+
+## Emergency SOS and get-help click-through
+
+Covers the emergency-number resilience work: the backend value overrides, the
+device cache survives a slow/offline backend, and the build-time
+`VITE_EMERGENCY_NUMBER` is a fallback. With none of them there must be **no
+auto-dial and no guessed digits**.
+
+### SOS dialer — with a configured number
+
+1. Confirm `EMERGENCY_NUMBER` is set on Render (e.g. `112`) and load the app so a
+   signed-in call to `/api/analyze` (or `/api/triage/referral`) has returned once.
+2. Open **Map → Emergency SOS**. The button label reads `Emergency SOS - Call <number>`.
+3. Tap it: the SOS sheet shows the number and a **10-second countdown** that
+   auto-dials `tel:<number>` at zero. Verify the dialer opens with the configured
+   number prefilled.
+4. Repeat with the **Call Now** button (no wait) and confirm it dials the same number.
+5. Take the device offline (airplane mode) and reload. The offline banner and the
+   SOS sheet must still name the cached number and still dial it — this proves the
+   device cache, not the live backend, is being used.
+
+### SOS dialer — with no number configured
+
+1. Clear the device cache (`localStorage.removeItem('veda_emergency_number')`) and
+   set neither `EMERGENCY_NUMBER` on Render nor `VITE_EMERGENCY_NUMBER` at build.
+2. Reload and open **Map → Emergency SOS**. The button reads plain `Emergency SOS`
+   (no number in the label).
+3. Tap it: the sheet shows the plain line **"call your local emergency number"**,
+   **no countdown**, and **no auto-dial**. There must be no `tel:` link and no
+   digits anywhere in the sheet.
+4. The offline banner must also read the plain "call your local emergency number"
+   wording, not a `Call <number>` button.
+5. Confirm tapping close/cancel never triggers a phone dialer.
+
+### Get-help line (home + chat)
+
+1. With only a partial set of vitals measured, confirm the home safety line reads
+   "…get medical help now or call `<number>`" when a number is configured, and
+   "…call your local emergency number" when none is.
+2. Open the chat panel and send **"emergency"** or **"help"**. The assistant reply
+   must include the same get-help line (backend `safetyNotice` first, then the
+   resolved number).
+3. Confirm the chat fallback reply (backend unavailable) says to use the emergency
+   workflow / call the local emergency number — never a blank or error-only bubble.
