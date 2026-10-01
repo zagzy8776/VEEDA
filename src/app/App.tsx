@@ -83,7 +83,14 @@ export default function App() {
   if (authState === 'logged-out') return <AuthGateway onAuthenticated={nextUser => { setUser(nextUser); setAuthState('authenticated'); }} onContinueLocally={() => setAuthState('local')} />;
 
   async function handleLogout() {
-    if (hasPendingLocalReadings() && !window.confirm("You have readings that haven't been saved to your account. Log out anyway?")) return;
+    if (hasPendingLocalReadings()) {
+      const proceed = window.confirm(
+        "You have readings saved on this device that aren't in your account. "
+        + 'They will be removed when you log out. Export a CSV first if you want to keep a copy.\n\n'
+        + 'Log out anyway?',
+      );
+      if (!proceed) return;
+    }
     await logout();
     clearLocalIdentity();
     setUser(null);
