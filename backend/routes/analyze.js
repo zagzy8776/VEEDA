@@ -1,8 +1,8 @@
 import { Router } from 'express';
+import sql from '../db.js';
 import { calculateNews2, calculateQsofa } from '../clinical-scoring.js';
-import { adultScoresAllowed, resolveSubject, CHILD_NOT_VALIDATED_NOTE } from '../age-gate.js';
+import { adultScoresAllowed, resolveAdultGate, CHILD_NOT_VALIDATED_NOTE } from '../age-gate.js';
 import { audit } from '../security.js';
-const router = Router();
 
 // The emergency number is verified configuration, never hard-coded. It is read
 // from the environment (same source as the triage route) so the guidance the
@@ -20,17 +20,27 @@ function safetyFallbackLine() {
     : 'If you feel very unwell, get medical help now or call your local emergency number.';
 }
 
-router.post('/analyze', async (req, res) => {
+export function createAnalyzeRouter({ db = sql } = {}) {
+  const router = Router();
+
+  router.post('/analyze', async (req, res) => {
   const { vitals = {}, symptoms = [], environment = {} } = req.body;
 
   // ── Adult-only clinical scores must never be computed for a child ──
   // NEWS2, qSOFA and adult blood-pressure interpretation are adult tools. When
-  // the request declares the readings are for a non-owner subject (a dependant)
-  // whose age is below the server-configured cutoff — or unknown — the server
-  // REFUSES to compute them. The gate is a server config value, not a Vite
-  // variable, so a client cannot bypass it. An absent subject is the signed-in
+  // the request is about a dependant, the SERVER looks that dependant up (scoped
+  // to the signed-in guardian) and takes the age from the stored record — the
+  // client's own age claim is never trusted. If the dependant is below the
+  // server-configured cutoff, or its age is unknown, the server REFUSES to
+  // compute the adult scores. The cutoff is server config, not a Vite variable,
+  // so a client cannot bypass it. A request with no dependant is the signed-in
   // owner and is not gated.
-  const subject = resolveSubject(req.body);
+  const subject = await resolveAdultGate(req.body, { guardianUserId: req.user?.id, db });
+  if (!subject.owned) {
+    // A dependent_id that does not belong to the caller is refused outright.
+    await audit(req, 'ACCESS_DENIED', req.user?.id ?? null);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   if (subject.declared && !adultScoresAllowed(subject.age)) {
     await audit(req, 'READ', req.user.id);
     return res.json({
@@ -142,6 +152,9 @@ router.post('/analyze', async (req, res) => {
     adultScoresAllowed: true,
     sensorControl,
   });
-});
+  });
 
-export default router;
+  return router;
+}
+
+export default createAnalyzeRouter();

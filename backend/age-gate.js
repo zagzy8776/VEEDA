@@ -46,31 +46,68 @@ export function adultScoresAllowed(age, cutoff = adultAgeCutoff()) {
 }
 
 /**
- * Resolve the subject's age from an incoming request body.
+ * Find the dependent reference a request is about, if any.
  *
- * A request declares who the readings are for with `subject` (or, for
- * back-compat, a bare `age`/`dependentId` at the top level). The owner ("self")
- * is an adult by definition and the client sends no age for them, so a request
- * with NO subject information at all is treated as the account owner (adult).
+ * The client may name a dependant with `dependent_id`/`dependentId` at the top
+ * level, or with `subject.id` (anything that is not the owner "self"). The
+ * client's declared AGE is deliberately ignored here: the caller cannot be
+ * trusted to say how old a dependant is, so the age is looked up on the server.
  *
- * Returns `{ declared: boolean, age: number | null }`. `declared` is true only
- * when the request explicitly says the readings belong to a non-owner subject
- * (a dependant). Only a DECLARED subject is age-gated; an absent subject is the
- * signed-in owner.
+ * Returns `{ isDependent: boolean, dependentId: string | null }`. No reference
+ * at all means the readings are for the signed-in owner (an adult).
  */
-export function resolveSubject(body = {}) {
+export function dependentRef(body = {}) {
   const subject = body?.subject;
   if (subject && typeof subject === 'object') {
     const isOwner = subject.type === 'self' || subject.id === 'self';
-    if (isOwner) return { declared: false, age: null };
-    const age = subject.age == null ? null : Number(subject.age);
-    return { declared: true, age: Number.isFinite(age) ? age : null };
+    if (!isOwner && subject.id != null) return { isDependent: true, dependentId: String(subject.id) };
   }
-  // Back-compat: an explicit dependant id or age at the top level means a
-  // non-owner subject whose age must be known and adult.
-  if (body?.dependentId != null || body?.age != null) {
-    const age = body.age == null ? null : Number(body.age);
-    return { declared: true, age: Number.isFinite(age) ? age : null };
+  const dependentId = body?.dependent_id ?? body?.dependentId;
+  if (dependentId != null) return { isDependent: true, dependentId: String(dependentId) };
+  return { isDependent: false, dependentId: null };
+}
+
+/**
+ * Resolve the subject of a request, SERVER-SIDE, without trusting the client.
+ *
+ * - No dependent reference → the signed-in owner, who is an adult by definition
+ *   (the client sends no age for them). `{ declared: false }`, not gated.
+ * - A dependent reference → look the dependant up ON THE SERVER, scoped to the
+ *   guardian, and take its age from the stored record. The client's own age
+ *   claim is never used. A dependant with no stored age is UNKNOWN age (no
+ *   adult scores). A dependent_id that is not owned by the caller is rejected
+ *   with `owned: false`.
+ *
+ * Returns `{ declared, age, owned, dependentId }`. `owned` is false only when a
+ * dependent reference was given but does not belong to the guardian; the caller
+ * must reject the request in that case.
+ */
+export async function resolveAdultGate(body = {}, { guardianUserId = null, db = null } = {}) {
+  const ref = dependentRef(body);
+  if (!ref.isDependent) return { declared: false, age: null, owned: true, dependentId: null };
+
+  // No database (or no authenticated guardian) means we cannot verify the
+  // dependant, so we fail CLOSED: treat the age as unknown and refuse to score.
+  if (!db || guardianUserId == null) {
+    return { declared: true, age: null, owned: true, dependentId: ref.dependentId };
   }
-  return { declared: false, age: null };
+
+  try {
+    const { rows } = await db.query(
+      'SELECT age FROM dependents WHERE id = $1 AND guardian_user_id = $2 LIMIT 1',
+      [ref.dependentId, guardianUserId],
+    );
+    if (!rows.length) return { declared: true, age: null, owned: false, dependentId: ref.dependentId };
+    const stored = rows[0]?.age;
+    const age = stored == null ? null : Number(stored);
+    return { declared: true, age: Number.isFinite(age) ? age : null, owned: true, dependentId: ref.dependentId };
+  } catch (error) {
+    // A missing dependents table (42P01) or any lookup failure must not let a
+    // score through: report the dependant as unknown age, still owned (so the
+    // request is gated, not rejected as forged).
+    if (error?.code === '42P01') {
+      return { declared: true, age: null, owned: true, dependentId: ref.dependentId };
+    }
+    throw error;
+  }
 }
