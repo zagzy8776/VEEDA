@@ -8,7 +8,9 @@ import {
   recordConsent,
   syncConsent,
   withdrawAllConsent,
+  withdrawAllConsentAndSync,
   withdrawConsent,
+  withdrawConsentAndSync,
   type StorageLike,
 } from '../src/app/consent.ts';
 
@@ -97,6 +99,50 @@ test('every client feature maps to a known server feature', () => {
   for (const value of Object.values(SERVER_FEATURE)) {
     assert.ok(['health_data', 'sharing', 'reminders'].includes(value));
   }
+});
+
+test('withdrawConsentAndSync removes the local record AND posts granted:false', async () => {
+  const storage = new TestStorage();
+  recordConsent(storage, USER, 'medication_reminders');
+  assert.equal(hasConsent(storage, USER, 'medication_reminders'), true);
+
+  let seen: any = null;
+  const fakeFetch = (async (_url: string, init: any) => {
+    seen = init;
+    return { ok: true, status: 200 } as Response;
+  }) as unknown as typeof fetch;
+
+  const result = await withdrawConsentAndSync(storage, USER, 'medication_reminders', fakeFetch, 'https://api.test', 'tok');
+
+  assert.equal(result.ok, true);
+  assert.equal(hasConsent(storage, USER, 'medication_reminders'), false);
+  assert.equal(getConsent(storage, USER, 'medication_reminders'), null);
+  const body = JSON.parse(seen.body);
+  assert.equal(body.granted, false, 'the server row must be withdrawn, not just the cache');
+  assert.equal(body.feature, 'reminders');
+});
+
+test('withdrawAllConsentAndSync withdrawals every feature on the server', async () => {
+  const storage = new TestStorage();
+  recordConsent(storage, USER, 'health_data_processing');
+  recordConsent(storage, USER, 'shareable_summary');
+
+  const bodies: any[] = [];
+  const fakeFetch = (async (_url: string, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200 } as Response;
+  }) as unknown as typeof fetch;
+
+  const results = await withdrawAllConsentAndSync(
+    storage, USER, ['health_data_processing', 'shareable_summary'], fakeFetch, 'https://api.test', 'tok',
+  );
+
+  assert.equal(results.every(r => r.ok), true);
+  assert.equal(bodies.length, 2);
+  assert.ok(bodies.every(b => b.granted === false));
+  assert.deepEqual(bodies.map(b => b.feature).sort(), ['health_data', 'sharing']);
+  assert.equal(hasConsent(storage, USER, 'health_data_processing'), false);
+  assert.equal(hasConsent(storage, USER, 'shareable_summary'), false);
 });
 
 test('withdrawing consent removes the record', () => {

@@ -156,6 +156,43 @@ export function withdrawConsent(storage: StorageLike, userId: string, feature: C
   writeAll(storage, userId, records);
 }
 
+/**
+ * Withdraw consent locally AND mirror the withdrawal to the server-of-record.
+ *
+ * Withdrawing is a data-handling decision, so the durable server row must flip
+ * to `granted: false` too — otherwise a later client (or a support query) would
+ * still see consent as active. `syncConsent` carries `granted: false`; this
+ * helper exists so no caller can withdraw locally and forget the server.
+ * Sync failures are non-fatal (the local record is already gone), so this never
+ * throws and returns the sync result for the caller to log if it wants.
+ */
+export async function withdrawConsentAndSync(
+  storage: StorageLike,
+  userId: string,
+  feature: ConsentFeature,
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+  authToken: string,
+  version: string = CONSENT_VERSION,
+): Promise<SyncResult> {
+  withdrawConsent(storage, userId, feature);
+  return syncConsent(fetchImpl, baseUrl, authToken, feature, false, version);
+}
+
+/** Withdraw every feature locally AND mirror each withdrawal to the server. */
+export async function withdrawAllConsentAndSync(
+  storage: StorageLike,
+  userId: string,
+  features: ConsentFeature[],
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+  authToken: string,
+  version: string = CONSENT_VERSION,
+): Promise<SyncResult[]> {
+  withdrawAllConsent(storage, userId);
+  return Promise.all(features.map(f => syncConsent(fetchImpl, baseUrl, authToken, f, false, version)));
+}
+
 /** Remove all consent records for a user. */
 export function withdrawAllConsent(storage: StorageLike, userId: string): void {
   writeAll(storage, userId, {});

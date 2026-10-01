@@ -131,6 +131,15 @@ export async function syncConsentRecord(feature: string, version: string, grante
   return Boolean(data?.consent);
 }
 
+/**
+ * Withdraw a consent decision on the server-of-record. This is the durable
+ * counterpart to the local `withdrawConsent` call: a client feature must not be
+ * withdrawn only locally, or the server row would still read as granted.
+ */
+export function withdrawConsentRecord(feature: string, version: string): Promise<boolean> {
+  return syncConsentRecord(feature, version, false);
+}
+
 function jsonHeaders(opts: RequestInit): Headers {
   const headers = new Headers(opts.headers || {});
   if (!headers.has('Content-Type') && opts.body !== undefined) headers.set('Content-Type', 'application/json');
