@@ -41,9 +41,12 @@ export interface Location {
 
 export interface Analysis {
   riskLevel: string;
+  evaluated?: boolean;
   headline: string;
   nurseGreeting: string;
   supportCheck: string;
+  safetyNotice?: string | null;
+  emergencyNumber?: string | null;
   emergencyMode: boolean;
   stabilizationSteps: string[];
   warningSigns: string[];

@@ -7,7 +7,6 @@ import type { Vitals, Analysis, Profile } from '../useVedaApp';
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', border: 'rgba(255,255,255,0.09)' };
 interface Msg { id: number; role: 'user' | 'assistant'; content: string; }
 const SUGGESTIONS = ['Summarize current clinical risk', 'Explain the NEWS2 score', 'Review oxygenation trend', 'Assess sepsis risk', 'How is recovery trending?'];
-const EMERGENCY_NUMBER = import.meta.env.VITE_EMERGENCY_NUMBER || '112';
 
 export function ChatPanel({ open, onClose, vitals, analysis, wellnessScore, profile }: {
   open: boolean; onClose: () => void; vitals: Vitals; analysis: Analysis | null; wellnessScore: number | null; profile: Profile | null;
@@ -59,6 +58,11 @@ function buildReply(msg: string, vitals: Vitals, analysis: Analysis | null): str
   if (m.includes('oxygen') || m.includes('spo2')) return `${scoreLine}\nSpO2: ${vitals.oxygen ?? 'not available from a validated phone sensor in this build'}.`;
   if (m.includes('score') || m.includes('news') || m.includes('risk')) return `${scoreLine}\n${qsofaLine}`;
   if (m.includes('temperature') || m.includes('fever') || m.includes('temp')) return `${scoreLine}\nTemperature: ${vitals.skinTemp ?? 'not recorded'}°C.`;
-  if (m.includes('emergency') || m.includes('help') || m.includes('urgent')) return `${scoreLine}\nIf immediate escalation is required, activate the emergency workflow or call ${EMERGENCY_NUMBER}.`;
+  if (m.includes('emergency') || m.includes('help') || m.includes('urgent')) {
+    const line = analysis?.safetyNotice || (analysis?.emergencyNumber
+      ? `If you feel very unwell, get medical help now or call ${analysis.emergencyNumber}.`
+      : 'If you feel very unwell, get medical help now or call your local emergency number.');
+    return `${scoreLine}\n${line}`;
+  }
   return `${scoreLine}\n${qsofaLine}`;
 }
