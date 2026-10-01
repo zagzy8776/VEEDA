@@ -20,6 +20,7 @@ export type MlTask =
   | 'seizure_detection'
   | 'fall_detection'
   | 'sickle_cell_crisis'
+  | 'sickle_cell'
   | 'breathing_trouble'
   | 'hemoglobin_anemia'
   | 'spo2'

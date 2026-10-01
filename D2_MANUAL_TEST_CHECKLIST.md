@@ -240,6 +240,18 @@ auto-dial and no guessed digits**.
 6. Confirm mental-health crisis referral stays OFF: with the flag off, opening the
    check-in shows a plain help line and **no crisis number**.
 
+### Phone checks (Phase 5)
+
+1. Open **Profile → Phone checks**. Every check reports "not yet validated" and
+   **no result** is shown; the checks that need a clip-on lens say so.
+2. Tap **Simulate a good capture** and confirm the quality gate reports "photo looks
+   usable". Feed a blurry/dark/over-bright/poorly-framed/too-small capture and
+   confirm each produces the matching retake guidance.
+3. Without consent, confirm the check refuses with a plain consent message.
+4. Confirm no photo or audio is recorded by default, and that the trace export (when
+   the research flag is on) contains only the raw trace and states it holds no
+   VEEDA result.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

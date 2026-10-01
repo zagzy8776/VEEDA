@@ -57,6 +57,7 @@ const AlertsPage = lazy(() => import('./components/AlertsPage').then(m => ({ def
 const DetectionPage = lazy(() => import('./components/DetectionPage').then(m => ({ default: m.DetectionPage })));
 const ConditionsPage = lazy(() => import('./components/ConditionsPage').then(m => ({ default: m.ConditionsPage })));
 const PreventionPage = lazy(() => import('./components/PreventionPage').then(m => ({ default: m.PreventionPage })));
+const PhoneChecksPage = lazy(() => import('./components/PhoneChecksPage').then(m => ({ default: m.PhoneChecksPage })));
 const ChatPanel = lazy(() => import('./components/ChatPanel').then(m => ({ default: m.ChatPanel })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -181,6 +182,7 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
   const [detectionOpen, setDetectionOpen] = useState(false);
   const [conditionsOpen, setConditionsOpen] = useState(false);
   const [preventionOpen, setPreventionOpen] = useState(false);
+  const [phoneChecksOpen, setPhoneChecksOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !isFirstLaunch());
   const [dependents, setDependents] = useState<ServerDependent[]>([]);
   const [activeSubjectId, setActiveSubjectId] = useState<string>(() => (user ? activeSubject(window.localStorage, user.id) : SELF_SUBJECT));
@@ -253,7 +255,7 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
             {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
             {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></div>}
             {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
+            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onOpenPhoneChecks={() => setPhoneChecksOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />
@@ -266,6 +268,7 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
       <Suspense fallback={null}>{detectionOpen && <DetectionPage configs={{}} baseline={null} onClose={() => setDetectionOpen(false)} />}</Suspense>
       <Suspense fallback={null}>{conditionsOpen && <ConditionsPage pack={null} production={(import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD === true} onClose={() => setConditionsOpen(false)} />}</Suspense>
       <Suspense fallback={null}>{preventionOpen && <PreventionPage pack={null} production={(import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD === true} emergencyNumber={resolveEmergencyNumber()} onClose={() => setPreventionOpen(false)} />}</Suspense>
+      <Suspense fallback={null}>{phoneChecksOpen && <PhoneChecksPage onClose={() => setPhoneChecksOpen(false)} />}</Suspense>
       <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} saveBiometric={app.saveBiometric} adultScoresAllowed={scoresAllowed} subjectLabel={activeDependent?.display_name} />}</Suspense>
       {legacyId && <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(45,212,164,0.35)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>

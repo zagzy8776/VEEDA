@@ -81,7 +81,23 @@ set with a test; no migration run against any database.
 
 ## Phase 5 — Phone-only checks and clip-on lens
 
-_Not started._
+All checks share one pipeline: guided capture → photo-quality gate → consent → trace
+export → model slot. The **quality gate and guided capture work now**; every model
+output is DISABLED ("not yet validated") because no validated model is registered.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Photo quality check + guided capture | working | `captureQuality.ts` — blur/light/framing/size gate with retake guidance. |
+| Hemoglobin / anemia | framework only | Lens check; model slot `hemoglobin_anemia` unvalidated. |
+| SpO2 | framework only | Model slot `spo2` unvalidated. |
+| Jaundice | framework only | Model slot `jaundice` unvalidated. |
+| Skin photos | framework only | Model slot `skin_photo` unvalidated. |
+| Cough & voice | framework only | Needs mic consent + model slot `cough_voice`; no recording by default. |
+| Malaria | framework only | Lens check; model slot `malaria` unvalidated. |
+| Sickle cell | framework only | Lens check; model slot `sickle_cell` unvalidated. |
+| Blood cell counting | framework only | Lens check; model slot `blood_cell_count` unvalidated. |
+| Urine test-strip reading | framework only | Model slot `urine_strip` unvalidated. |
+| Trace export for validation | working | `phoneCheckExport.ts` — raw trace only, no VEEDA result. |
 
 ## Phase 6 — Live camera and voice consult
 
