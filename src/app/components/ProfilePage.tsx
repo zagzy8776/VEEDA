@@ -35,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const inp = { padding: '5px 10px', background: '#0A1220', border: `0.5px solid rgba(255,255,255,0.08)`, borderRadius: 8, color: '#E2F4F0', fontSize: 13, textAlign: 'right' as const, outline: 'none', width: 90 };
 
-export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void }) {
+export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenSummary, onOpenReminders }: { profile: Profile; saveProfile: (p: Partial<Profile>) => void; userEmail?: string; onLogout?: () => Promise<void>; onOpenSummary?: () => void; onOpenReminders?: () => void }) {
   const [form, setForm] = useState(profile);
   const [perms, setPerms] = useState({ camera: false, mic: false, location: false, notifications: false });
   const [saved, setSaved] = useState(false);
@@ -135,6 +135,16 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Shareable health summary</div>
                 <div style={{ fontSize: 11, color: C.muted }}>Create a PDF on this device</div>
+              </div>
+            </div>
+            <span style={{ color: C.muted, fontSize: 16 }}>›</span>
+          </div>
+          <div onClick={onOpenReminders} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', cursor: onOpenReminders ? 'pointer' : 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Bell size={16} style={{ color: C.teal }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Medication reminders</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Add to your phone calendar</div>
               </div>
             </div>
             <span style={{ color: C.muted, fontSize: 16 }}>›</span>
