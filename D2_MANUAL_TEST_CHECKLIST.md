@@ -252,6 +252,21 @@ auto-dial and no guessed digits**.
    the research flag is on) contains only the raw trace and states it holds no
    VEEDA result.
 
+### Live consult (Phase 6)
+
+1. Open **Profile → Live consult**. Tap **Start with consent**, then turn the camera
+   on: a red **"Camera is on"** bar appears at the top. Turn the mic on too and it
+   reads "Camera and microphone are on".
+2. Tap **Record (off)** — recording only starts when tapped, and it is reset to off
+   when the session ends. Confirm nothing is stored by default.
+3. Start a session without consent (or before consent) and confirm the camera/mic
+   buttons do **nothing**.
+4. Select **Stroke screen** with no pack loaded and confirm it says the screen is not
+   available and tells the user to get emergency help — never blank, never a false
+   calm.
+5. Confirm the language framework lists English, Pidgin, Igbo, Yoruba and Hausa and
+   that a missing language falls back to English rather than showing blank text.
+
 6. Sign out with contacts saved and confirm the logout export includes an
    `emergency-contacts-<date>.csv` file with the user's own contacts.
 

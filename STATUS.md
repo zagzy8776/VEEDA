@@ -101,7 +101,17 @@ output is DISABLED ("not yet validated") because no validated model is registere
 
 ## Phase 6 — Live camera and voice consult
 
-_Not started._
+| Item | Status | Notes |
+|------|--------|-------|
+| Camera & mic session with guided capture | working | `liveSession.ts` — per-session consent, "camera/mic is on" indicator, recording OFF by default. |
+| Live vitals using existing estimators | working | Reuses the existing rPPG/breath estimators; nothing new invented. |
+| Visual-check slots | framework only | Model slots; "not yet validated". |
+| Stroke-screen flow | framework only | Steps come from a reviewed pack (`loadStrokeScreen`); needs a pack. |
+| Label reading aloud | framework only | OCR + speech slots; not validated. |
+| Caregiver-started remote check | framework only | Session kind exists; needs a caregiver delivery channel. |
+| Emergency mode | working | Session kind + escalation wiring; dials only the verified number. |
+| Consent each session, no recording by default, on-device first | working | Enforced by `startSession`/`setRecording`; pinned by tests. |
+| Local-language voice (language-pack slot) | framework only | `languagePacks.ts` + browser voice detection; needs reviewed language packs. |
 
 ## Phase 7 — Connection to care and the AI doctor
 
