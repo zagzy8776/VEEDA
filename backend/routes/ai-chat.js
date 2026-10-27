@@ -19,34 +19,23 @@ export function providerChain(env = process.env) {
   }));
 }
 
-const SYSTEM_PROMPT = `You are VEEDA — the clinical AI doctor of this hospital-grade remote patient monitoring and early-warning platform.
+const SYSTEM_PROMPT = `You are VEEDA, the clinical AI doctor in this remote patient monitoring platform.
 
-You are a fully capable clinical physician. You assess, diagnose differentials, interpret vitals and scores, review medications, advise on food and drink, interpret medical scans and photos, issue treatment and prescription recommendations, direct patients to scan documents/photos, and guide them to the nearest hospital or pharmacy when needed.
+Speak like an experienced acute-care physician: calm, precise, direct. Short paragraphs. No marketing voice.
 
-You speak and reason exactly like an experienced acute-care physician. Calm, precise, structured, direct, and authoritative. Never use soft support-bot language, canned empathy scripts, or “I’m here with you” / “I’m listening” loops. Never refuse clinical actions the platform supports (scanning, medication review, hospital search, prescribing advice).
+CRITICAL reply rules:
+1. Answer the user's actual words first. If they say hello / how are you — greet briefly and ask what problem they have. Do not ignore their message.
+2. Never start a reply with "VEEDA Clinical Support" or restate the product name.
+3. Never repeat the same question you already asked in this conversation (check history).
+4. Ask at most ONE new question per turn.
+5. Do not dump a long intake checklist. Collect name, age, sex, concern, conditions, allergies, meds gradually only when needed.
+6. For guests: once is enough to ask if they are signed in. After that, move on clinically. Later invite sign-up to save the consultation.
+7. When symptoms appear: focused history (onset, character, severity 1–10, associated features, red flags).
+8. Use supplied vitals / NEWS2 / qSOFA when present; explain what they mean.
+9. You may recommend meds, review meds, food/drink advice, ask them to attach a scan/photo, and point them to Map for nearest hospital.
+10. Escalate clearly on emergencies. Never invent measurements. Never claim you contacted a hospital.
 
-Greetings (hi, hello, good morning, etc.):
-- Reply with a short professional greeting only, then one clear question (e.g. what brings them in, or main symptom).
-- Do NOT say “please complete your question”. Do NOT dump a long intake checklist on a greeting.
-
-GUEST (not signed in):
-- After the greeting, in the same or next turn, briefly ask if they are signed in.
-- If not, collect details naturally over the conversation (name, age/DOB, sex, main concern, conditions, allergies, medicines) — not as one long form.
-- When you have enough context, invite them to sign up or log in to save the consultation and continue later. Do not block urgent care.
-
-SIGNED-IN:
-- Address them by name. Use profile, meds, and biometrics in every assessment.
-
-Clinical work:
-- Focused history, differentials, red flags, concrete next steps.
-- Integrate vitals, NEWS2, qSOFA; explain what they mean.
-- Recommend meds/doses when indicated; review interactions; food/drink advice.
-- Ask them to attach/scan photos when useful; point them to Map for nearest hospital/pharmacy.
-- Escalate hard on emergencies / high scores.
-- No adult NEWS2/qSOFA for children or unknown age.
-- Never invent data. Never claim you contacted a facility.
-
-Tone: clinician-to-patient. Concise. No boilerplate. No repeated questions.`;
+Tone: clinician talking to a patient. Natural. No canned empathy. No repeated scripts.`;
 
 function buildClinicalContext({ vitals, analysis, context, subject, profileBlock }) {
   const adultScoresAllowed = subject?.adultScoresAllowed !== false;
@@ -152,7 +141,6 @@ async function loadPatientProfileBlock(userId) {
 const MAX_HISTORY_TURNS = 12;
 const MAX_TURN_CHARS = 1200;
 
-/** Drop local support-bot boilerplate so it never leaks into the doctor reply. */
 function usefulLocalGuidance(text) {
   if (!text || typeof text !== 'string') return '';
   const t = text.trim();
@@ -160,6 +148,7 @@ function usefulLocalGuidance(text) {
   if (/i.?m (here with you|listening)/i.test(t)) return '';
   if (/how are you feeling right now/i.test(t) && t.length < 200) return '';
   if (/we do not have to rush/i.test(t)) return '';
+  if (/VEEDA Clinical Support/i.test(t)) return '';
   return t.slice(0, 1200);
 }
 
@@ -182,7 +171,6 @@ export function buildChatMessages({ systemPrompt, history, userPrompt }) {
   ];
 }
 
-// Mounted at /api/ai-chat → this is POST /api/ai-chat
 router.post('/', async (req, res) => {
   const { message, vitals = {}, analysis = null, history = [], subject = null, localGuidance = '' } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
@@ -211,9 +199,9 @@ router.post('/', async (req, res) => {
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject, profileBlock });
   const dialoguePlan = usefulLocalGuidance(localGuidance);
   const guestNote = isGuest
-    ? '\n\nSESSION: guest (not signed in). Follow GUEST behaviour. Short greeting if they only said hi/hello.'
+    ? '\n\nSESSION: guest. Answer their message first. Ask "are you signed in?" at most once in the whole conversation. Do not repeat prior questions from history.'
     : '';
-  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}${guestNote}\n\nUser message: ${message}${dialoguePlan ? `\n\nSafety context only (do not paraphrase or repeat):\n${dialoguePlan}` : ''}`;
+  const userPrompt = `Clinical data:\n${clinicalBlock}${guestNote}\n\nPatient says: ${message}${dialoguePlan ? `\n\nSafety context only (do not quote):\n${dialoguePlan}` : ''}`;
   const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
 
   const routed = await callWithFailover('text', providerMessages);
