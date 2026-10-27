@@ -17,14 +17,6 @@ const BASE = '';
 const REQUESTED_WITH = 'XMLHttpRequest';
 const LOCAL_USER_ID = 'local';
 const SESSION_STORAGE_KEY = 'veda_session_v1';
-const PENDING_HEALTH_KEY = 'veda_pending_health_readings';
-const LOCAL_HEALTH_KEYS = [
-  'veda_latest_vitals',
-  'veda_steps',
-  'veda_steps_date',
-  'veda_hydration_ml',
-  'veda_hydration_date',
-];
 
 let accessToken: string | null = null;
 let currentUser: AuthUser | null = null;
@@ -240,7 +232,15 @@ export function clearLocalIdentity() {
   for (const key of ['veda_user_id', 'veda_patient_id', 'veda_role', 'veda_tenant_id', 'veda_ward_id']) localStorage.removeItem(key);
 }
 
-export function clearLocalHealthState(userId: string = currentUser?.id ?? LOCAL_USER_ID) {
+const LOCAL_HEALTH_KEYS = [
+  'veda_latest_vitals',
+  'veda_steps',
+  'veda_steps_date',
+  'veda_hydration_ml',
+  'veda_hydration_date',
+];
+
+export function clearLocalHealthState(_userId?: string) {
   try {
     for (const key of LOCAL_HEALTH_KEYS) localStorage.removeItem(key);
   } catch {}
@@ -256,7 +256,7 @@ export function hasPendingLocalReadings(): boolean {
   }
 }
 
-export async function syncConsentedReadings(userId: string, consented: boolean): Promise<boolean> {
+export async function syncConsentedReadings(_userId: string, _consented: boolean): Promise<boolean> {
   return false;
 }
 
@@ -282,6 +282,25 @@ export async function deleteAccount(password: string, confirm: string): Promise<
   } catch {
     return { ok: false, error: 'Could not reach the server.' };
   }
+}
+
+export function markPendingHealthReading(type: string): string {
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem('veda_pending_health_readings') || '[]');
+    const list = Array.isArray(parsed) ? parsed : [];
+    list.push({ id, type, createdAt: new Date().toISOString() });
+    sessionStorage.setItem('veda_pending_health_readings', JSON.stringify(list));
+  } catch {}
+  return id;
+}
+
+export function resolvePendingHealthReading(id: string): void {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem('veda_pending_health_readings') || '[]');
+    const list = Array.isArray(parsed) ? parsed.filter((x: { id?: string }) => x?.id !== id) : [];
+    sessionStorage.setItem('veda_pending_health_readings', JSON.stringify(list));
+  } catch {}
 }
 
 export { LOCAL_USER_ID };
