@@ -137,15 +137,31 @@ function createAuthRouter(options = {}) {
       if (passwordError) return res.status(400).json({ error: passwordError });
 
       const passwordHash = await bcrypt.hash(password, 12);
-      const { rows } = await sql.query(
-        `INSERT INTO users (email, password_hash, role)
-         VALUES ($1, $2, 'patient')
-         ON CONFLICT (email) DO NOTHING
-         RETURNING id, email, role`,
-        [email, passwordHash],
+
+      // Avoid ON CONFLICT — some deploys lack a unique constraint on users.email
+      const existing = await sql.query(
+        `SELECT id FROM users WHERE lower(email) = $1 LIMIT 1`,
+        [email],
       );
-      if (!rows[0]) return res.status(409).json({ error: 'An account with this email already exists' });
-      return res.status(201).json({ ok: true });
+      if (existing.rows?.[0]) {
+        return res.status(409).json({ error: 'An account with this email already exists' });
+      }
+
+      try {
+        const { rows } = await sql.query(
+          `INSERT INTO users (email, password_hash, role)
+           VALUES ($1, $2, 'patient')
+           RETURNING id, email, role`,
+          [email, passwordHash],
+        );
+        if (!rows[0]) return res.status(500).json({ error: 'Unable to create account' });
+        return res.status(201).json({ ok: true });
+      } catch (insertErr) {
+        if (insertErr?.code === '23505') {
+          return res.status(409).json({ error: 'An account with this email already exists' });
+        }
+        throw insertErr;
+      }
     } catch (error) {
       console.error('register failed:', error);
       return res.status(500).json({ error: error?.message || 'Unable to register at this time' });
@@ -161,7 +177,7 @@ function createAuthRouter(options = {}) {
       }
 
       const { rows } = await sql.query(
-        `SELECT id, email, role, password_hash FROM users WHERE email = $1 LIMIT 1`,
+        `SELECT id, email, role, password_hash FROM users WHERE lower(email) = $1 LIMIT 1`,
         [email],
       );
       const user = rows[0];
