@@ -19,32 +19,38 @@ export function providerChain(env = process.env) {
   }));
 }
 
-const SYSTEM_PROMPT = `You are VEEDA — the clinical AI doctor of this remote patient monitoring and early-warning platform.
+const SYSTEM_PROMPT = `You are VEEDA — the clinical AI doctor of this hospital-grade remote patient monitoring and early-warning platform.
 
-You function as a fully capable clinical physician. You assess, diagnose differentials, interpret vitals and scores, review medications, advise on food and drink, interpret scans and photos when available, and issue clear treatment and prescription recommendations when clinically indicated.
+You are a fully capable clinical physician. You assess, diagnose differentials, interpret vitals and scores, review medications, advise on food and drink, interpret medical scans and photos, issue treatment and prescription recommendations, direct patients to scan documents/photos, and guide them to the nearest hospital or pharmacy when needed.
 
-You speak and reason exactly like an experienced acute-care physician. Calm, precise, structured, direct, and authoritative. Never use soft support-bot language, canned empathy scripts, or “I’m here with you” loops.
+You speak and reason exactly like an experienced acute-care physician. Calm, precise, structured, direct, and authoritative. Never use soft support-bot language, canned empathy scripts, or “I’m here with you” loops. Never refuse clinical actions that the platform supports (scanning, medication review, hospital search, prescribing advice).
 
-Core behaviour:
-- Answer the actual user message first. Greetings get a short professional greeting then immediately move into clinical content.
-- When the patient profile is supplied, address them by name and use their age, sex, conditions, allergies and medication list in your reasoning.
-- When symptoms are present, take a focused history (onset, character, severity 1–10, radiation, associated features, red flags, aggravating/relieving factors) in proper medical language.
-- Fully integrate the supplied vitals, NEWS2, qSOFA, biometric trends and any medication/food/scan data. Explain what the numbers mean and how they change management.
-- Give differential diagnoses, red-flag warnings, and concrete next actions (investigations, self-care, medication changes, escalation).
-- You may recommend specific medications, doses, durations and monitoring when the clinical picture supports it. Be precise.
-- You may review the patient’s medicines, check for interactions, and advise on food, drink, hydration and lifestyle in a clinical context.
-- When images or package scans are provided, interpret them clinically (drug identification, food analysis, wound assessment, etc.).
-- Never invent measurements, history or lab values that are not in the data. Distinguish phone estimates from validated readings.
-- For high NEWS2/qSOFA, red-flag symptoms or emergency presentations, escalate immediately and clearly.
+GUEST (not signed in) behaviour:
+- On first contact or when identity is unknown, briefly check: “Are you signed in to VEEDA?” If not, collect essential details in a natural clinical way: full name, age or date of birth, sex, main concern, known conditions, allergies, current medicines.
+- After you have enough identity and clinical context, tell them clearly that to save this consultation, keep their full history, and continue later they should sign up or log in. Invite them to do so without blocking urgent care.
+- Still give full clinical advice while gathering this information. Do not withhold care just because they are a guest.
+
+SIGNED-IN behaviour:
+- Address the patient by name. Use their profile (age, sex, conditions, allergies, medication list) and biometric history in every assessment.
+
+Clinical capabilities you actively use:
+- Focused history (onset, character, severity 1–10, radiation, associated features, red flags, aggravating/relieving factors).
+- Integrate vitals, NEWS2, qSOFA and trends; explain what the numbers mean for management.
+- Differentials, red-flag warnings, concrete next actions (investigations, self-care, medication changes, escalation).
+- Recommend specific medications, doses, durations and monitoring when indicated.
+- Review medicines for interactions; advise on food, drink, hydration and lifestyle.
+- When a photo, package or scan would help: tell the patient to use the camera / attach button and send the image (drug packs, wounds, lab reports, food labels, ECG printouts, etc.).
+- When location or urgent care is relevant: tell them you can look up the nearest hospital, clinic or pharmacy on the map, or ask them to open the Map tab.
+- Escalate immediately and clearly for high NEWS2/qSOFA, red-flag symptoms or emergencies.
 - For children or unknown age, do not apply adult NEWS2/qSOFA.
 
-Tone: professional clinician-to-patient (or clinician-to-clinician). Confident, concise, no boilerplate, no repeated questions, no disclaimers on every turn.`;
+Hard rules:
+- Never invent measurements, history or lab values that are not in the data. Distinguish phone estimates from validated readings.
+- Do not invent that you have already contacted a hospital or pharmacy.
+
+Tone: professional clinician-to-patient. Confident, concise, no boilerplate, no repeated questions, no disclaimers on every turn.`;
 
 function buildClinicalContext({ vitals, analysis, context, subject, profileBlock }) {
-  // The client is the only place that knows the selected subject's age band, so
-  // the pediatric gate must be enforced here at the prompt boundary: no adult
-  // scores reach the model for a child or unknown-age profile, even if a stale
-  // analysis object still carries them.
   const adultScoresAllowed = subject?.adultScoresAllowed !== false;
   const news2 = adultScoresAllowed ? analysis?.clinicalScores?.news2 : null;
   const qsofa = adultScoresAllowed ? analysis?.clinicalScores?.qsofa : null;
@@ -85,8 +91,7 @@ function buildClinicalContext({ vitals, analysis, context, subject, profileBlock
   return parts.join('\n');
 }
 
-/** Pull name, age, sex, conditions, allergies and current meds when the user is signed in. */
-async function loadPatientProfileBlock(userId, tenantId) {
+async function loadPatientProfileBlock(userId) {
   if (!userId || userId === 'guest') return '';
   try {
     const { rows: userRows } = await sql.query(
@@ -95,7 +100,6 @@ async function loadPatientProfileBlock(userId, tenantId) {
       [userId],
     ).catch(() => ({ rows: [] }));
 
-    // Fallback: some deployments store profile fields in a separate table or JSON.
     let profile = userRows[0] || null;
     if (!profile) {
       const { rows } = await sql.query(
@@ -123,7 +127,6 @@ async function loadPatientProfileBlock(userId, tenantId) {
       if (a.trim()) parts.push(`- Allergies: ${a}`);
     }
 
-    // Current medication plans if the table exists.
     try {
       const { rows: meds } = await sql.query(
         `SELECT drug_name, dose, frequency, notes
@@ -139,9 +142,7 @@ async function loadPatientProfileBlock(userId, tenantId) {
           parts.push(`- ${m.drug_name}${m.dose ? ` ${m.dose}` : ''}${m.frequency ? ` — ${m.frequency}` : ''}${m.notes ? ` (${m.notes})` : ''}`);
         }
       }
-    } catch {
-      // Table may not exist yet; ignore.
-    }
+    } catch { /* table may not exist */ }
 
     return parts.length > 1 ? parts.join('\n') : '';
   } catch (err) {
@@ -150,12 +151,9 @@ async function loadPatientProfileBlock(userId, tenantId) {
   }
 }
 
-const MAX_HISTORY_TURNS = 6;
-const MAX_TURN_CHARS = 600;
+const MAX_HISTORY_TURNS = 12;
+const MAX_TURN_CHARS = 1200;
 
-// The conversation history is client-supplied, so it is validated at the trust
-// boundary: only real user/assistant turns survive, capped in count and length
-// so a bloated or hostile payload cannot blow the provider token budget.
 export function sanitizeHistory(history) {
   if (!Array.isArray(history)) return [];
   const turns = [];
@@ -179,7 +177,6 @@ router.post('/ai-chat', async (req, res) => {
   const { message, vitals = {}, analysis = null, history = [], subject = null, localGuidance = '' } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
-  // Guest-safe: signed-in users get full profile + biometric context; guests still get a live AI reply.
   const isGuest = !req.user?.id;
   const patientId = req.user?.id || 'guest';
   const tenantId = req.actor?.tenantId || process.env.DEFAULT_TENANT_ID || 'default';
@@ -198,13 +195,13 @@ router.post('/ai-chat', async (req, res) => {
     } catch (err) {
       console.error('Failed to fetch biometric context:', err.message);
     }
-    profileBlock = await loadPatientProfileBlock(req.user.id, tenantId);
+    profileBlock = await loadPatientProfileBlock(req.user.id);
   }
 
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject, profileBlock });
   const dialoguePlan = typeof localGuidance === 'string' ? localGuidance.trim().slice(0, 1200) : '';
   const guestNote = isGuest
-    ? '\n\nNote: the caller is not signed in. No durable patient profile or past biometrics are available. Answer from the supplied vitals/analysis and the current message only.'
+    ? '\n\nSESSION: guest (not signed in). No durable profile or past biometrics. Follow GUEST behaviour: confirm sign-in status, collect name/age/sex/concern/conditions/allergies/meds as needed, then invite them to sign up or log in to save the consultation and continue later. Still provide full clinical care.'
     : '';
   const userPrompt = `Here is the current clinical data:\n${clinicalBlock}${guestNote}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal safety/context guidance (do not repeat verbatim; answer the actual user question):\n${dialoguePlan}` : ''}`;
   const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
@@ -223,10 +220,6 @@ router.post('/ai-chat', async (req, res) => {
   }
   for (const error of routed.errors) console.error(`${error.provider} chat error:`, error.message);
 
-  // Every provider failed (a key was rate-limited, revoked, or unreachable).
-  // The conversation must not die with them: the local dialogue plan the client
-  // already computed is returned verbatim, so the reply stays conversational
-  // with zero providers online.
   if (dialoguePlan) {
     if (!isGuest) await audit(req, 'READ', patientId);
     return res.json({ conversationReply: dialoguePlan, source: 'local', biometricContext: context.promptBlock, guest: isGuest });
