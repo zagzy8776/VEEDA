@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { MessageCircle, Heart, Wind, Droplets, Zap, Thermometer, Droplet, CloudSun, MapPin, AlertTriangle, Info } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { VedaApp } from '../useVedaApp';
@@ -31,6 +31,25 @@ function GuardianRing({ score }: { score: number | null }) {
   );
 }
 
+function LiveEnvValue({ value }: { value: string }) {
+  return (
+    <div style={{ minHeight: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={value}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.28 }}
+          style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center', fontFamily: "'Geist Mono',monospace", display: 'block' }}
+        >
+          {value}
+        </motion.span>
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => void }) {
   const { vitals, sources, env, analysis, wellnessScore, history, hydrationMl, profile } = app;
 
@@ -39,7 +58,6 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
   const greeting = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-  // Stats from real history
   const streak = (() => {
     if (!history.length) return 0;
     const days = new Set(history.map(e => new Date(e.timestamp).toDateString()));
@@ -67,7 +85,6 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
     { icon: MapPin, color: C.red, value: env.gps, label: 'GPS' },
   ];
 
-  // Notices from real analysis / environment
   const notices = [];
   const hasMeasured =
     vitals.heartRate != null ||
@@ -144,13 +161,23 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>Environment</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
             {envItems.map(({ icon: Icon, color, value, label }) => (
-              <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 11, background: `${color}14`, display: 'grid', placeItems: 'center', color }}>
+              <motion.div
+                key={label}
+                layout
+                style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}
+              >
+                <motion.div
+                  key={`${label}-icon-${value}`}
+                  initial={{ scale: 0.85, opacity: 0.6 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                  style={{ width: 32, height: 32, borderRadius: 11, background: `${color}14`, display: 'grid', placeItems: 'center', color }}
+                >
                   <Icon size={15} strokeWidth={2} />
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center', fontFamily: "'Geist Mono',monospace" }}>{value}</div>
+                </motion.div>
+                <LiveEnvValue value={value} />
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.muted }}>{label}</div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -164,7 +191,7 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
             {notices.map((n, i) => {
               const color = n.type === 'warning' ? C.amber : C.teal;
               return (
-                <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 * i + 0.4 }}
+                <motion.div key={`${n.title}-${n.desc}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.05 * i }}
                   style={{ background: `${color}0d`, border: `1px solid ${color}28`, borderRadius: 16, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                   <div style={{ color, marginTop: 1, flexShrink: 0 }}><n.icon size={15} strokeWidth={2.2} /></div>
                   <div>
