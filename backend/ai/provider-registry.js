@@ -13,12 +13,24 @@ const MODEL_CAPABILITIES = new Map([
   ['gemini:gemini-2.5-flash', CAPABILITY_NAMES],
   ['gemini:gemini-2.5-flash-lite', CAPABILITY_NAMES],
   ['gemini:gemini-2.5-pro', CAPABILITY_NAMES],
+  // OpenRouter — common paid + free models (including Grok / xAI)
   ['openrouter:openai/gpt-4o-mini', ['text', 'image', 'structuredOutput', 'toolCalling']],
   ['openrouter:openai/gpt-4o', ['text', 'image', 'structuredOutput', 'toolCalling']],
   ['openrouter:google/gemini-2.5-flash', CAPABILITY_NAMES],
   ['openrouter:google/gemini-2.5-pro', CAPABILITY_NAMES],
   ['openrouter:qwen/qwen3.8-27b', ['text', 'image', 'toolCalling']],
   ['openrouter:openai/gpt-oss-120b', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:x-ai/grok-3-mini-beta', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:x-ai/grok-4', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:x-ai/grok-4.5', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:x-ai/grok-4.6', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:openrouter/free', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:nvidia/nemotron-3.5-lightning:free', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:nvidia/nemotron-3-ultra-550b-a55b:free', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:nvidia/nemotron-3.5-super-vl:free', ['text', 'image', 'structuredOutput', 'toolCalling']],
+  ['openrouter:google/gemma-4-31b-it:free', ['text', 'image', 'structuredOutput', 'toolCalling']],
+  ['openrouter:thinkingmachines/inkling:free', ['text', 'structuredOutput', 'toolCalling']],
+  ['openrouter:thinkingmachines/inkling-small:free', ['text', 'structuredOutput', 'toolCalling']],
   ['cerebras:gpt-oss-120b', ['text', 'structuredOutput', 'toolCalling']],
   ['cerebras:gpt-oss-20b', ['text', 'structuredOutput', 'toolCalling']],
 ]);
@@ -42,7 +54,17 @@ function explicitSelfHostedCapabilities(env) {
 }
 
 function knownCapabilities(provider, model) {
-  return capabilities(MODEL_CAPABILITIES.get(`${provider}:${String(model || '').toLowerCase()}`) || []);
+  const key = `${provider}:${String(model || '').toLowerCase()}`;
+  if (MODEL_CAPABILITIES.has(key)) {
+    return capabilities(MODEL_CAPABILITIES.get(key));
+  }
+  // OpenRouter hosts hundreds of models. If the model is not in the explicit
+  // list we still treat it as text-capable so new free / Grok models work
+  // without a registry update. Vision remains opt-in via the explicit list.
+  if (provider === 'openrouter' && model) {
+    return capabilities(['text', 'structuredOutput', 'toolCalling']);
+  }
+  return capabilities([]);
 }
 
 function entry({ name, key, adapter, baseUrl, textModel, visionModel, priority, timeoutMs, rpm, env, headers = {} }) {
@@ -87,9 +109,12 @@ export function buildProviderRegistry(env = process.env) {
     entry({
       name: 'openrouter', key: env.OPENROUTER_API_KEY, adapter: 'openai_chat',
       baseUrl: env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions',
-      textModel: env.OPENROUTER_MODEL || 'openai/gpt-oss-120b',
+      // Prefer a free router or a known free model when the user has only set the key.
+      // Override with OPENROUTER_MODEL for paid / Grok models.
+      textModel: env.OPENROUTER_MODEL || 'openrouter/free',
       visionModel: env.OPENROUTER_VISION_MODEL,
-      priority: env.OPENROUTER_PRIORITY || 30, timeoutMs: env.OPENROUTER_TIMEOUT_MS, rpm: env.OPENROUTER_RPM, env,
+      priority: env.OPENROUTER_PRIORITY || 15, // slightly ahead of Groq so free OpenRouter is tried early
+      timeoutMs: env.OPENROUTER_TIMEOUT_MS, rpm: env.OPENROUTER_RPM, env,
     }),
     entry({
       name: 'openai', key: env.OPENAI_API_KEY, adapter: 'openai_chat',
