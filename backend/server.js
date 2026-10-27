@@ -7,40 +7,57 @@ import analyze from './routes/analyze.js';
 import biometric from './routes/biometric.js';
 import wellness from './routes/wellness.js';
 import map from './routes/map.js';
+import integrations from './routes/integrations.js';
+import fhir from './routes/fhir.js';
 import rawBiometrics from './routes/raw-biometrics.js';
 import clinician from './routes/clinician.js';
 import triage from './routes/triage.js';
-import vision from './routes/vision.js';
-import medicine from './routes/medicine.js';
-import foodScan from './routes/food-scan.js';
-import modelsStatus from './routes/models-status.js';
+import consent from './routes/consent.js';
 import aiChat from './routes/ai-chat.js';
 import conversations from './routes/conversations.js';
+import vision from './routes/vision.js';
 import auth from './routes/auth.js';
-import consent from './routes/consent.js';
 import account from './routes/account.js';
 import readings from './routes/readings.js';
 import dependents from './routes/dependents.js';
 import alerts from './routes/alerts.js';
+import reviewQueue from './routes/review-queue.js';
+import adminDebug from './routes/admin-debug.js';
+import medicine from './routes/medicine.js';
 import { requireAuth } from './security.js';
-import { listMountedRoutes } from './route-inventory.js';
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 10000;
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.set('trust proxy', 1);
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('FRONTEND_URL must contain at least one allowed origin in production.');
+}
 
-const aiChatLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many AI chat requests. Please wait a moment.' },
-});
+if (process.env.NODE_ENV === 'production' && !process.env.EMERGENCY_NUMBER) {
+  console.warn(
+    '\n' + '='.repeat(72) +
+    '\n  WARNING: EMERGENCY_NUMBER is not set in production.' +
+    '\n  The app will NOT show or dial a verified emergency number — SOS and the' +
+    '\n  get-help line fall back to "call your local emergency number".' +
+    '\n  Set EMERGENCY_NUMBER on Render to the region\'s official number before go-live.' +
+    '\n' + '='.repeat(72) + '\n',
+  );
+}
 
+app.set('trust proxy', 2);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+}));
 app.use('/api/vision', requireAuth, express.json({ limit: '15mb' }), vision);
+app.use(express.json());
+
 app.use('/auth', auth);
 
 function optionalAuth(req, res, next) {
@@ -57,15 +74,9 @@ function optionalAuth(req, res, next) {
     return next();
   };
   if (!header) return asGuest();
-  // Soft-auth: never 401 the public chat route — bad/expired tokens fall back to guest
   const fakeRes = {
-    status(code) {
-      this._code = code;
-      return this;
-    },
-    json() {
-      return asGuest();
-    },
+    status(code) { this._code = code; return this; },
+    json() { return asGuest(); },
   };
   return requireAuth(req, fakeRes, (err) => {
     if (err) return asGuest();
@@ -74,15 +85,20 @@ function optionalAuth(req, res, next) {
   });
 }
 
-// Public (optional auth) clinical surfaces
-app.use('/api/ai-chat', optionalAuth, aiChatLimiter, aiChat);
-app.use('/api', optionalAuth, conversations);
-
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' && req.path === '/health') return next();
   if (req.path === '/ai-chat' || req.path.startsWith('/ai-chat/')) return next();
   if (req.path === '/conversations' || req.path.startsWith('/conversations/')) return next();
   return requireAuth(req, res, next);
+});
+
+const aiChatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.AI_CHAT_RATE_LIMIT_PER_MIN || 30),
+  keyGenerator: (req) => (req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_req, res) => res.status(429).json({ error: 'Too many AI chat requests' }),
 });
 
 app.use('/api', health);
@@ -97,10 +113,40 @@ app.use('/api', account);
 app.use('/api', readings);
 app.use('/api', dependents);
 app.use('/api', alerts);
-app.use('/api', map);
+app.use('/api', reviewQueue);
+app.use('/api/map', map);
+app.use('/api/integrations', integrations);
+app.use('/api/fhir', fhir);
+app.use('/api/ai-chat', optionalAuth, aiChatLimiter, aiChat);
+app.use('/api', optionalAuth, conversations);
 app.use('/api', medicine);
-app.use('/api', foodScan);
-app.use('/api', modelsStatus);
+app.use('/api/admin', adminDebug);
+
+export { app };
+
+function listMountedRoutes(expressApp) {
+  let stack = expressApp._router?.stack || [];
+  if (!stack.length) {
+    try { stack = expressApp.router?.stack || []; } catch { stack = []; }
+  }
+  const lines = [];
+  for (const layer of stack) {
+    if (layer.name !== 'router' || !layer.handle?.stack) continue;
+    const prefix = (layer.regexp?.source || '')
+      .replace(/^\^/, '')
+      .replace(/\\\/\?\(\?=\\\/\|\$\)$/, '')
+      .replace(/\\\//g, '/')
+      .replace(/\$$/, '') || '/';
+    const paths = [];
+    for (const routeLayer of layer.handle.stack) {
+      if (!routeLayer.route) continue;
+      const methods = Object.keys(routeLayer.route.methods).map((m) => m.toUpperCase()).join(',');
+      paths.push(`${methods} ${routeLayer.route.path}`);
+    }
+    lines.push(`  ${prefix}  ->  ${paths.length ? paths.join('  |  ') : '(no routes registered)'}`);
+  }
+  return lines;
+}
 
 if (process.env.NODE_ENV !== 'test') {
   const inventory = listMountedRoutes(app);
@@ -110,5 +156,3 @@ if (process.env.NODE_ENV !== 'test') {
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => console.log(`VEDA backend running on port ${PORT}`));
 }
-
-export default app;
