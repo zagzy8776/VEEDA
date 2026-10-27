@@ -14,6 +14,7 @@ import clinician from './routes/clinician.js';
 import triage from './routes/triage.js';
 import consent from './routes/consent.js';
 import aiChat from './routes/ai-chat.js';
+import conversations from './routes/conversations.js';
 import vision from './routes/vision.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
@@ -23,7 +24,7 @@ import alerts from './routes/alerts.js';
 import reviewQueue from './routes/review-queue.js';
 import adminDebug from './routes/admin-debug.js';
 import medicine from './routes/medicine.js';
-import { requireAuth, attachActor } from './security.js';
+import { requireAuth } from './security.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -36,11 +37,6 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   throw new Error('FRONTEND_URL must contain at least one allowed origin in production.');
 }
 
-// Production must not go live without a verified emergency number: without it the
-// safety line degrades to "call your local emergency number" and the SOS screen
-// cannot name a number to dial. This is a loud, unmissable startup warning — not
-// a hard boot failure, so a misconfigured deploy still serves (and can be fixed)
-// rather than going dark on a safety-critical route.
 if (process.env.NODE_ENV === 'production' && !process.env.EMERGENCY_NUMBER) {
   console.warn(
     '\n' + '='.repeat(72) +
@@ -52,10 +48,6 @@ if (process.env.NODE_ENV === 'production' && !process.env.EMERGENCY_NUMBER) {
   );
 }
 
-// Browser -> Vercel rewrite -> Render is two proxy hops. A fixed hop count
-// resolves the browser address without trusting an arbitrary left-most value.
-// The preview diagnostic below must confirm that Vercel/Render overwrite the
-// forwarded chain; the per-email limiter remains an independent backstop.
 app.set('trust proxy', 2);
 app.use(cors({
   origin: (origin, callback) => {
@@ -63,29 +55,20 @@ app.use(cors({
     return callback(null, false);
   },
 }));
-// Vision accepts base64 images up to 10 MB (roughly 13.4 MB encoded). Keep the
-// larger parser scoped to this authenticated router; all other APIs retain
-// Express's smaller default JSON limit.
 app.use('/api/vision', requireAuth, express.json({ limit: '15mb' }), vision);
 app.use(express.json());
 
-// Authentication endpoints are public so users can establish a session.
 app.use('/auth', auth);
 
-// AI chat is intentionally public (guest mode). Rate-limited below. Everything
-// else under /api still requires a JWT so patient data stays protected.
 const aiChatLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 40,
-  // Prefer user id when signed in; fall back to IP for guests.
   keyGenerator: (req) => (req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   handler: (_req, res) => res.status(429).json({ error: 'Too many AI chat requests' }),
 });
 
-// Optional auth for AI chat: if a valid Bearer token is present we attach the
-// user; if not we treat the caller as a guest. Never 401 the chat itself.
 function optionalAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) {
@@ -99,16 +82,17 @@ function optionalAuth(req, res, next) {
     };
     return next();
   }
-  // Re-use the normal requireAuth path when a token is supplied.
   return requireAuth(req, res, next);
 }
 
+// Public (optional auth) clinical surfaces
 app.use('/api/ai-chat', optionalAuth, aiChatLimiter, aiChat);
+app.use('/api', optionalAuth, conversations);
 
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' && req.path === '/health') return next();
-  // ai-chat is already handled above; skip the global requireAuth for it.
   if (req.path === '/ai-chat' || req.path.startsWith('/ai-chat/')) return next();
+  if (req.path === '/conversations' || req.path.startsWith('/conversations/')) return next();
   return requireAuth(req, res, next);
 });
 
@@ -133,31 +117,14 @@ app.use('/api/admin', adminDebug);
 
 export { app };
 
-// ── Startup route inventory (non-production only) ─────────────────────────────
-// Print every mounted prefix and the paths the router under it registered. The
-// hang bug that this guards against — a router-mounted-as-factory that never
-// calls next() — is invisible in a route list, but a MISSING prefix or an empty
-// path list here is the first thing to check when a group 404s (or hangs) after a
-// deploy. Guarded to non-production so the inventory never leaks surface area
-// into prod logs.
 function listMountedRoutes(expressApp) {
-  // Express 4 exposes the layer stack as `app._router`; `app.router` is a
-  // deprecated getter that THROWS when touched in 4.x, so it must be read only
-  // inside a guard. Express 5 renames the public accessor to `app.router.stack`.
   let stack = expressApp._router?.stack || [];
   if (!stack.length) {
-    try {
-      stack = expressApp.router?.stack || [];
-    } catch {
-      stack = [];
-    }
+    try { stack = expressApp.router?.stack || []; } catch { stack = []; }
   }
   const lines = [];
   for (const layer of stack) {
     if (layer.name !== 'router' || !layer.handle?.stack) continue;
-    // `layer.regexp.source` is something like `^\/api\/?(?=\/|$)`. Strip the
-    // anchors, the `/?(?=/|$)` optional-trailing-slash group, and unescape the
-    // escaped slashes to print a readable prefix.
     const prefix = (layer.regexp?.source || '')
       .replace(/^\^/, '')
       .replace(/\\\/\?\(\?=\\\/\|\$\)$/, '')
@@ -176,9 +143,7 @@ function listMountedRoutes(expressApp) {
 
 if (process.env.NODE_ENV !== 'test') {
   const inventory = listMountedRoutes(app);
-  console.log(
-    `\nVEDA backend route inventory (${inventory.length} mounted groups):\n${inventory.join('\n')}\n`,
-  );
+  console.log(`\nVEDA backend route inventory (${inventory.length} mounted groups):\n${inventory.join('\n')}\n`);
 }
 
 if (process.env.NODE_ENV !== 'test') {
