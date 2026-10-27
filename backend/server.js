@@ -26,10 +26,21 @@ import adminDebug from './routes/admin-debug.js';
 import medicine from './routes/medicine.js';
 import { requireAuth } from './security.js';
 
-// Support both `export default router` and `export default createAuthRouter` (factory).
-const auth = (typeof authModule === 'function' && typeof authModule.handle !== 'function')
-  ? authModule()
-  : authModule;
+function resolveAuthRouter(mod) {
+  try {
+    if (mod && Array.isArray(mod.stack)) return mod;
+    if (typeof mod === 'function') {
+      if (typeof mod.handle === 'function' && Array.isArray(mod.stack)) return mod;
+      const out = mod();
+      if (out && (Array.isArray(out.stack) || typeof out.handle === 'function')) return out;
+    }
+  } catch (err) {
+    console.error('Failed to resolve auth router:', err);
+  }
+  throw new Error('auth.js must export an Express router or a factory that returns one');
+}
+const auth = resolveAuthRouter(authModule);
+console.log('Auth router mounted with', (auth.stack || []).length, 'layers');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -61,6 +72,8 @@ app.use(cors({
 app.use('/api/vision', requireAuth, express.json({ limit: '15mb' }), vision);
 app.use(express.json());
 
+// Lightweight probe — if this hangs, the whole /auth mount is broken
+app.get('/auth/ping', (_req, res) => res.json({ ok: true, service: 'auth' }));
 app.use('/auth', auth);
 
 function optionalAuth(req, res, next) {

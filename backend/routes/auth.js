@@ -31,7 +31,11 @@ function assertJwtSecret(jwtSecret) {
 }
 
 function createAccessToken(user, { jwtSecret, issuer, audience }) {
-  return jwt.sign({ sub: user.id, role: user.role }, jwtSecret, { expiresIn: ACCESS_TOKEN_TTL, issuer, audience });
+  return jwt.sign({ sub: user.id, role: user.role }, jwtSecret, {
+    expiresIn: ACCESS_TOKEN_TTL,
+    issuer,
+    audience,
+  });
 }
 
 function createRefreshToken() {
@@ -87,7 +91,7 @@ function loginRateLimit(keyGenerator) {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     keyGenerator,
-    handler: (_req, res) => res.status(429).json({ error: 'Too many login attempts. Wait a few minutes and try again.' }),
+    handler: (_req, res) => res.status(429).json({ error: 'Too many login attempts. Please wait a few minutes.' }),
   });
 }
 
@@ -95,7 +99,7 @@ function safeIpRateLimitKey(req) {
   try {
     return ipKeyGenerator(req.ip || req.socket?.remoteAddress || 'unknown');
   } catch {
-    return 'ip:unknown';
+    return `ip:${req.ip || 'unknown'}`;
   }
 }
 
@@ -118,14 +122,11 @@ function createAuthRouter(options = {}) {
   assertJwtSecret(jwtSecret);
 
   const router = Router();
-
-  router.get('/ping', (_req, res) => {
-    res.json({ ok: true, auth: 'up' });
-  });
-
   const requireRefreshCookieCsrf = requireCookieCsrf({ allowedOrigins });
   const loginIpLimiter = loginRateLimit(safeIpRateLimitKey);
   const loginEmailLimiter = loginRateLimit((req) => normalizeEmail(req.body?.email) || 'missing-email');
+
+  router.get('/ping', (_req, res) => res.json({ ok: true, auth: true }));
 
   router.post('/register', loginIpLimiter, async (req, res) => {
     try {
@@ -137,16 +138,17 @@ function createAuthRouter(options = {}) {
 
       const passwordHash = await bcrypt.hash(password, 12);
       const { rows } = await sql.query(
-        `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'patient')
+        `INSERT INTO users (email, password_hash, role)
+         VALUES ($1, $2, 'patient')
          ON CONFLICT (email) DO NOTHING
          RETURNING id, email, role`,
         [email, passwordHash],
       );
-      if (!rows[0]) return res.status(409).json({ error: 'An account with this email already exists. Try Login instead.' });
+      if (!rows[0]) return res.status(409).json({ error: 'An account with this email already exists' });
       return res.status(201).json({ ok: true });
     } catch (error) {
       console.error('register failed:', error);
-      return res.status(500).json({ error: 'Unable to register at this time. Please try again.' });
+      return res.status(500).json({ error: error?.message || 'Unable to register at this time' });
     }
   });
 
@@ -157,12 +159,14 @@ function createAuthRouter(options = {}) {
       if (!isValidEmail(email) || typeof password !== 'string') {
         return res.status(400).json({ error: 'Email and password are required' });
       }
+
       const { rows } = await sql.query(
         `SELECT id, email, role, password_hash FROM users WHERE email = $1 LIMIT 1`,
         [email],
       );
       const user = rows[0];
       if (!user) return res.status(401).json({ error: 'Invalid email or password' });
+
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
 
@@ -185,7 +189,7 @@ function createAuthRouter(options = {}) {
       }
     } catch (error) {
       console.error('login failed:', error);
-      return res.status(500).json({ error: 'Unable to log in at this time. Please try again.' });
+      return res.status(500).json({ error: error?.message || 'Unable to log in at this time' });
     }
   });
 
@@ -237,7 +241,10 @@ function createAuthRouter(options = {}) {
     if (raw) {
       const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
       try {
-        await sql.query(`UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL`, [tokenHash]);
+        await sql.query(
+          `UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL`,
+          [tokenHash],
+        );
       } catch (error) {
         console.error('logout revoke failed:', error);
       }
