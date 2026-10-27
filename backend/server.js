@@ -16,7 +16,7 @@ import consent from './routes/consent.js';
 import aiChat from './routes/ai-chat.js';
 import conversations from './routes/conversations.js';
 import vision from './routes/vision.js';
-import auth from './routes/auth.js';
+import authModule from './routes/auth.js';
 import account from './routes/account.js';
 import readings from './routes/readings.js';
 import dependents from './routes/dependents.js';
@@ -25,6 +25,11 @@ import reviewQueue from './routes/review-queue.js';
 import adminDebug from './routes/admin-debug.js';
 import medicine from './routes/medicine.js';
 import { requireAuth } from './security.js';
+
+// Support both `export default router` and `export default createAuthRouter` (factory).
+const auth = (typeof authModule === 'function' && typeof authModule.handle !== 'function')
+  ? authModule()
+  : authModule;
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -41,9 +46,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.EMERGENCY_NUMBER) {
   console.warn(
     '\n' + '='.repeat(72) +
     '\n  WARNING: EMERGENCY_NUMBER is not set in production.' +
-    '\n  The app will NOT show or dial a verified emergency number — SOS and the' +
-    '\n  get-help line fall back to "call your local emergency number".' +
-    '\n  Set EMERGENCY_NUMBER on Render to the region\'s official number before go-live.' +
+    '\n  Set EMERGENCY_NUMBER on Render before go-live.' +
     '\n' + '='.repeat(72) + '\n',
   );
 }
@@ -123,35 +126,6 @@ app.use('/api', medicine);
 app.use('/api/admin', adminDebug);
 
 export { app };
-
-function listMountedRoutes(expressApp) {
-  let stack = expressApp._router?.stack || [];
-  if (!stack.length) {
-    try { stack = expressApp.router?.stack || []; } catch { stack = []; }
-  }
-  const lines = [];
-  for (const layer of stack) {
-    if (layer.name !== 'router' || !layer.handle?.stack) continue;
-    const prefix = (layer.regexp?.source || '')
-      .replace(/^\^/, '')
-      .replace(/\\\/\?\(\?=\\\/\|\$\)$/, '')
-      .replace(/\\\//g, '/')
-      .replace(/\$$/, '') || '/';
-    const paths = [];
-    for (const routeLayer of layer.handle.stack) {
-      if (!routeLayer.route) continue;
-      const methods = Object.keys(routeLayer.route.methods).map((m) => m.toUpperCase()).join(',');
-      paths.push(`${methods} ${routeLayer.route.path}`);
-    }
-    lines.push(`  ${prefix}  ->  ${paths.length ? paths.join('  |  ') : '(no routes registered)'}`);
-  }
-  return lines;
-}
-
-if (process.env.NODE_ENV !== 'test') {
-  const inventory = listMountedRoutes(app);
-  console.log(`\nVEDA backend route inventory (${inventory.length} mounted groups):\n${inventory.join('\n')}\n`);
-}
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => console.log(`VEDA backend running on port ${PORT}`));

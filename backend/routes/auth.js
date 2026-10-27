@@ -8,7 +8,7 @@ import sql from '../db.js';
 const REFRESH_COOKIE_NAME = 'veda_refresh_token';
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || '15m';
 const REFRESH_TOKEN_TTL_MS = Number(process.env.REFRESH_TOKEN_TTL_MS || 1000 * 60 * 60 * 24 * 30);
-const COMMON_PASSWORDS = new Set(['password','password123','1234567890','qwerty12345','letmein1234']);
+const COMMON_PASSWORDS = new Set(['password', 'password123', '1234567890', 'qwerty12345', 'letmein1234']);
 
 function normalizeEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -83,16 +83,20 @@ function requireCookieCsrf({ allowedOrigins }) {
 function loginRateLimit(keyGenerator) {
   return rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 20,
+    limit: 30,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     keyGenerator,
-    handler: (_req, res) => res.status(429).json({ error: 'Too many login attempts' }),
+    handler: (_req, res) => res.status(429).json({ error: 'Too many login attempts. Wait a few minutes and try again.' }),
   });
 }
 
 function safeIpRateLimitKey(req) {
-  return ipKeyGenerator(req.ip || req.socket?.remoteAddress || 'unknown');
+  try {
+    return ipKeyGenerator(req.ip || req.socket?.remoteAddress || 'unknown');
+  } catch {
+    return 'ip:unknown';
+  }
 }
 
 async function issueRefreshToken(client, userId) {
@@ -114,6 +118,11 @@ function createAuthRouter(options = {}) {
   assertJwtSecret(jwtSecret);
 
   const router = Router();
+
+  router.get('/ping', (_req, res) => {
+    res.json({ ok: true, auth: 'up' });
+  });
+
   const requireRefreshCookieCsrf = requireCookieCsrf({ allowedOrigins });
   const loginIpLimiter = loginRateLimit(safeIpRateLimitKey);
   const loginEmailLimiter = loginRateLimit((req) => normalizeEmail(req.body?.email) || 'missing-email');
@@ -125,6 +134,7 @@ function createAuthRouter(options = {}) {
       if (!isValidEmail(email)) return res.status(400).json({ error: 'Valid email is required' });
       const passwordError = validatePassword(password);
       if (passwordError) return res.status(400).json({ error: passwordError });
+
       const passwordHash = await bcrypt.hash(password, 12);
       const { rows } = await sql.query(
         `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'patient')
@@ -132,11 +142,11 @@ function createAuthRouter(options = {}) {
          RETURNING id, email, role`,
         [email, passwordHash],
       );
-      if (!rows[0]) return res.status(409).json({ error: 'An account with this email already exists' });
+      if (!rows[0]) return res.status(409).json({ error: 'An account with this email already exists. Try Login instead.' });
       return res.status(201).json({ ok: true });
     } catch (error) {
       console.error('register failed:', error);
-      return res.status(500).json({ error: 'Unable to register at this time' });
+      return res.status(500).json({ error: 'Unable to register at this time. Please try again.' });
     }
   });
 
@@ -155,6 +165,7 @@ function createAuthRouter(options = {}) {
       if (!user) return res.status(401).json({ error: 'Invalid email or password' });
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+
       const accessToken = createAccessToken(user, { jwtSecret, issuer, audience });
       const client = await sql.connect();
       try {
@@ -174,7 +185,7 @@ function createAuthRouter(options = {}) {
       }
     } catch (error) {
       console.error('login failed:', error);
-      return res.status(500).json({ error: 'Unable to log in at this time' });
+      return res.status(500).json({ error: 'Unable to log in at this time. Please try again.' });
     }
   });
 
