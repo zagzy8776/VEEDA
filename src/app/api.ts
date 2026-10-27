@@ -15,6 +15,19 @@ type AuthResponse = {
 
 const BASE = '';
 const REQUESTED_WITH = 'XMLHttpRequest';
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const LOCAL_USER_ID = 'local';
 const SESSION_STORAGE_KEY = 'veda_session_v1';
 
@@ -80,6 +93,8 @@ async function readJson<T>(response: Response): Promise<T | null> {
 async function performRefresh(): Promise<AuthUser | null> {
   const hadSession = Boolean(accessToken || currentUser);
   try {
+    const controller = new AbortController();
+    const kill = setTimeout(() => controller.abort(), 4500);
     const response = await fetch(`${BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -88,7 +103,8 @@ async function performRefresh(): Promise<AuthUser | null> {
         'X-Requested-With': REQUESTED_WITH,
       },
       body: '{}',
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(kill));
     if (!response.ok) {
       if (accessToken && currentUser) return currentUser;
       clearSession();
@@ -125,10 +141,10 @@ export async function restoreSession(): Promise<AuthUser | null> {
   if (cached) {
     accessToken = cached.accessToken;
     currentUser = cached.user;
-    refreshSession().catch(() => {});
+    void withTimeout(refreshSession(), 4000, null);
     return cached.user;
   }
-  return refreshSession();
+  return withTimeout(refreshSession(), 5000, null);
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
