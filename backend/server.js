@@ -23,7 +23,7 @@ import alerts from './routes/alerts.js';
 import reviewQueue from './routes/review-queue.js';
 import adminDebug from './routes/admin-debug.js';
 import medicine from './routes/medicine.js';
-import { requireAuth } from './security.js';
+import { requireAuth, attachActor } from './security.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -72,19 +72,44 @@ app.use(express.json());
 // Authentication endpoints are public so users can establish a session.
 app.use('/auth', auth);
 
-app.use('/api', (req, res, next) => {
-  if (req.method === 'GET' && req.path === '/health') return next();
-
-  return requireAuth(req, res, next);
-});
-
+// AI chat is intentionally public (guest mode). Rate-limited below. Everything
+// else under /api still requires a JWT so patient data stays protected.
 const aiChatLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 30,
-  keyGenerator: (req) => `user:${req.user.id}`,
+  limit: 40,
+  // Prefer user id when signed in; fall back to IP for guests.
+  keyGenerator: (req) => (req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   handler: (_req, res) => res.status(429).json({ error: 'Too many AI chat requests' }),
+});
+
+// Optional auth for AI chat: if a valid Bearer token is present we attach the
+// user; if not we treat the caller as a guest. Never 401 the chat itself.
+function optionalAuth(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header) {
+    req.user = null;
+    req.actor = {
+      userId: 'guest',
+      role: null,
+      tenantId: process.env.DEFAULT_TENANT_ID || 'default',
+      patientId: null,
+      wardId: null,
+    };
+    return next();
+  }
+  // Re-use the normal requireAuth path when a token is supplied.
+  return requireAuth(req, res, next);
+}
+
+app.use('/api/ai-chat', optionalAuth, aiChatLimiter, aiChat);
+
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' && req.path === '/health') return next();
+  // ai-chat is already handled above; skip the global requireAuth for it.
+  if (req.path === '/ai-chat' || req.path.startsWith('/ai-chat/')) return next();
+  return requireAuth(req, res, next);
 });
 
 app.use('/api', health);
@@ -103,8 +128,6 @@ app.use('/api', reviewQueue);
 app.use('/api/map', map);
 app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);
-app.use('/api/ai-chat', aiChatLimiter);
-app.use('/api', aiChat);
 app.use('/api', medicine);
 app.use('/api/admin', adminDebug);
 
