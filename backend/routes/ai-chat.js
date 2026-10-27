@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { callWithFailover } from '../ai/provider-registry.js';
+import { callWithFailover } from '../ai/provider-router.js';
 import { getBiometricContext } from '../services/biometric-context.js';
 import { audit } from '../security.js';
 import sql from '../db.js';
@@ -174,13 +174,13 @@ router.post('/', async (req, res) => {
       return res.json({
         conversationReply: routed.reply,
         source: 'ai',
-        provider: routed.provider.name,
+        provider: routed.provider?.name,
         model: routed.model,
         biometricContext: context.promptBlock,
         guest: isGuest,
       });
     }
-    for (const error of routed.errors) console.error(`${error.provider} chat error:`, error.message);
+    for (const error of routed.errors || []) console.error(`${error.provider} chat error:`, error.message);
 
     if (dialoguePlan) {
       return res.json({ conversationReply: dialoguePlan, source: 'local', guest: isGuest });
