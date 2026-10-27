@@ -34,7 +34,7 @@ interface Msg {
 interface PendingImage { file: File; imageUrl: string; ocrText: string; ocrUncertain: boolean; }
 interface PendingDocument { file: File; }
 interface NearbyPlace { name: string; type?: string; category?: string; distM?: number; phone?: string | null; }
-const SUGGESTIONS = ['Summarize current clinical risk', 'Explain the NEWS2 score', 'Review oxygenation trend', 'Assess sepsis risk', 'How is recovery trending?', 'Report a symptom'];
+const SUGGESTIONS = ['How are my readings?', 'Talk about a symptom', 'Review my medicines', 'Report a symptom'];
 
 export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed = true, subjectLabel, location, profile }: {
   open: boolean; onClose: () => void; vitals: Vitals; analysis: Analysis | null; wellnessScore: number | null; profile: Profile | null;
@@ -62,6 +62,9 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
   const documentRef = useRef<HTMLInputElement>(null);
   const dialogueRef = useRef(createDialogueState());
   const [vision, setVision] = useState<VisionStatus>(VISION_INITIAL);
+  const [viewport, setViewport] = useState<{ height: number; bottom: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const requestSequence = useRef(0);
 
   // Runtime check: ask backend whether a vision-capable provider with a key exists.
   // Never trusts the local allowlist alone (prevents false claims of vision support).
@@ -115,7 +118,31 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
     return `${who}${CHILD_NOT_VALIDATED_NOTE}. NEWS2 and qSOFA are adult tools, so no score is shown for this profile.`;
   }
 
-  useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, open]);
+  // iOS Safari resizes its visual viewport independently of the layout viewport.
+  // Position the sheet within the visible area without moving the page behind it.
+  useEffect(() => {
+    if (!open) { setViewport(null); return; }
+    const visual = window.visualViewport;
+    const update = () => {
+      if (!visual) { setViewport(null); return; }
+      setViewport({ height: visual.height, bottom: Math.max(0, window.innerHeight - visual.height - visual.offsetTop) });
+    };
+    update();
+    visual?.addEventListener('resize', update);
+    visual?.addEventListener('scroll', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      visual?.removeEventListener('resize', update);
+      visual?.removeEventListener('scroll', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const list = scrollRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages, open]);
 
   useEffect(() => {
     if (!attachmentMenuOpen) return;
@@ -178,10 +205,10 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
         return;
       }
       const enhanced = ai.data?.source === 'ai' ? ai.data.conversationReply?.trim() : null;
-      if (!enhanced || !enhanced.includes('?')) return;
+      if (!enhanced) return;
       setMessages(current => current.map(msg => msg.id === replyId ? { ...msg, content: enhanced } : msg));
     } catch {
-      // The local answer is already visible; provider failure needs no failure UI.
+      // Keep the safe local response if the provider is unreachable.
     }
   }
 
@@ -333,16 +360,16 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
     if (local.providerEligible) void enhanceWithProvider(content, local, replyId, history);
   }
 
-  return <AnimatePresence>{open && <><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', zIndex: 500 }} /><motion.div initial={{ y: '100%', x: '-50%' }} animate={{ y: 0, x: '-50%' }} exit={{ y: '100%', x: '-50%' }} style={{ position: 'fixed', bottom: 0, left: '50%', width: '100%', maxWidth: 390, height: 'min(82dvh, 680px)', maxHeight: 'calc(100dvh - 12px)', display: 'flex', flexDirection: 'column', background: 'rgba(9,14,26,0.98)', borderRadius: '24px 24px 0 0', zIndex: 600, overflow: 'hidden', border: '0.5px solid rgba(255,255,255,0.1)', borderBottom: 'none' }}>
+  return <AnimatePresence>{open && <><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', zIndex: 500 }} /><motion.div initial={{ y: '100%', x: '-50%' }} animate={{ y: 0, x: '-50%' }} exit={{ y: '100%', x: '-50%' }} style={{ position: 'fixed', bottom: viewport?.bottom ?? 0, left: '50%', width: '100%', maxWidth: 390, height: viewport ? Math.max(220, Math.min(viewport.height * 0.82, 680, viewport.height - 12)) : 'min(82dvh, 680px)', maxHeight: viewport ? Math.max(220, viewport.height - 12) : 'calc(100dvh - 12px)', display: 'flex', flexDirection: 'column', background: 'rgba(9,14,26,0.98)', borderRadius: '24px 24px 0 0', zIndex: 600, overflow: 'hidden', border: '0.5px solid rgba(255,255,255,0.1)', borderBottom: 'none' }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 14px', borderBottom: `0.5px solid ${C.border}` }}><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg,rgba(45,212,164,0.2),rgba(55,138,221,0.15))', display: 'grid', placeItems: 'center', color: C.teal }}><Sparkles size={16} /></div><div><div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Clinical Support</div><div style={{ fontSize: 11, color: C.teal }}>{adultScoresAllowed && analysis?.clinicalScores?.news2 ? `NEWS2: ${analysis.clinicalScores.news2.total} · ` : ''}{adultScoresAllowed ? (analysis?.riskLevel ?? 'Monitoring') : CHILD_NOT_VALIDATED_NOTE}</div></div></div><button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.07)', border: 'none', color: C.muted }}><X size={16} /></button></div>
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 12, scrollbarWidth: 'none' }}>{messages.map(msg => <Fragment key={msg.id}><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '10px 14px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? 'rgba(45,212,164,0.14)' : 'var(--secondary)', border: `0.5px solid ${msg.role === 'user' ? 'rgba(45,212,164,0.25)' : 'var(--border)'}`, fontSize: 13, color: 'var(--foreground)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{msg.imageUrl && <img src={msg.imageUrl} alt="Attached" style={{ width: '100%', borderRadius: 10, marginBottom: 8, border: '0.5px solid var(--border)', display: 'block' }} />}{msg.document && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, padding: 8, borderRadius: 10, background: 'var(--muted)' }}><FileText size={18} /><span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{msg.document.name}</strong><small>{msg.document.type} · {formatAttachmentSize(msg.document.size)}</small></span></div>}{msg.content}</motion.div>{msg.actions?.kind === 'consultation' && <button onClick={() => setViewRecord(msg.actions!.record)} style={{ alignSelf: 'flex-start', margin: '-4px 0 0 14px', padding: '6px 12px', background: 'rgba(45,212,164,0.12)', border: '0.5px solid rgba(45,212,164,0.3)', borderRadius: 12, color: C.teal, fontSize: 12, fontWeight: 700 }}>Open summary for the doctor</button>}</Fragment>)}<div ref={endRef} /></div>
+    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 12, scrollbarWidth: 'none' }}>{messages.map(msg => <Fragment key={msg.id}><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '10px 14px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? 'rgba(45,212,164,0.14)' : 'var(--secondary)', border: `0.5px solid ${msg.role === 'user' ? 'rgba(45,212,164,0.25)' : 'var(--border)'}`, fontSize: 13, color: 'var(--foreground)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{msg.imageUrl && <img src={msg.imageUrl} alt="Attached" style={{ width: '100%', borderRadius: 10, marginBottom: 8, border: '0.5px solid var(--border)', display: 'block' }} />}{msg.document && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, padding: 8, borderRadius: 10, background: 'var(--muted)' }}><FileText size={18} /><span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{msg.document.name}</strong><small>{msg.document.type} · {formatAttachmentSize(msg.document.size)}</small></span></div>}{msg.content}</motion.div>{msg.actions?.kind === 'consultation' && <button onClick={() => setViewRecord(msg.actions!.record)} style={{ alignSelf: 'flex-start', margin: '-4px 0 0 14px', padding: '6px 12px', background: 'rgba(45,212,164,0.12)', border: '0.5px solid rgba(45,212,164,0.3)', borderRadius: 12, color: C.teal, fontSize: 12, fontWeight: 700 }}>Open summary for the doctor</button>}</Fragment>)}<div ref={endRef} /></div>
     <div style={{ padding: '6px 16px 8px', display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>{SUGGESTIONS.map(s => <button key={s} onClick={() => (s === 'Report a symptom' ? startIntake() : send(s))} style={{ flexShrink: 0, padding: '6px 12px', background: 'rgba(45,212,164,0.08)', border: '0.5px solid rgba(45,212,164,0.2)', borderRadius: 20, color: C.teal, fontSize: 11, fontWeight: 600 }}>{s}</button>)}</div>
     {(pendingImage || pendingDocument) && <div style={{ padding: '8px 16px 0' }}>
       {pendingImage && <div style={{ position: 'relative', width: 82, height: 82 }}><img src={pendingImage.imageUrl} alt="Photo ready to send" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 14, border: '1px solid var(--border)' }} /><button type="button" onClick={removeAttachment} aria-label="Remove attached photo" style={{ position: 'absolute', top: -7, right: -7, width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--popover)', color: 'var(--popover-foreground)', display: 'grid', placeItems: 'center' }}><X size={14} /></button></div>}
       {pendingDocument && <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)' }}><FileText size={22} color={C.teal} /><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--foreground)', fontSize: 12 }}>{pendingDocument.file.name}</strong><span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{pendingDocument.file.type} · {formatAttachmentSize(pendingDocument.file.size)}</span><span style={{ display: 'block', color: '#E4A84B', fontSize: 10 }}>Document analysis unavailable — file will not be uploaded.</span></div><button type="button" onClick={removeAttachment} aria-label="Remove attached document" style={{ border: 0, background: 'transparent', color: 'var(--muted-foreground)', padding: 8 }}><Trash2 size={17} /></button></div>}
     </div>}
     {attachmentError && <div role="alert" style={{ padding: '6px 16px 0', color: '#E24B4A', fontSize: 11 }}>{attachmentError}</div>}
-    <div style={{ position: 'relative', display: 'flex', gap: 8, padding: '10px 16px calc(20px + env(safe-area-inset-bottom))', borderTop: `0.5px solid ${C.border}`, alignItems: 'center' }}>
+    <div style={{ position: 'relative', display: 'flex', gap: 8, padding: viewport?.bottom ? '10px 16px 12px' : '10px 16px calc(20px + env(safe-area-inset-bottom))', borderTop: `0.5px solid ${C.border}`, alignItems: 'center' }}>
       <input ref={cameraFileRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style={{ display: 'none' }} onChange={e => void onAttachFile(e.target.files?.[0])} />
       <input ref={photoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={e => void onAttachFile(e.target.files?.[0])} />
       <input ref={documentRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }} onChange={e => onAttachDocument(e.target.files?.[0])} />
@@ -352,7 +379,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
         <AttachmentMenuItem icon={<FileText size={19} />} label="Upload documents" detail="PDF · analysis unavailable" onClick={() => { setAttachmentMenuOpen(false); documentRef.current?.click(); }} />
       </motion.div></>}</AnimatePresence>
       <motion.button type="button" aria-haspopup="menu" aria-expanded={attachmentMenuOpen} aria-label="Add attachment" whileTap={{ scale: .92 }} disabled={attachBusy || !!intake} onClick={() => setAttachmentMenuOpen(open => !open)} style={{ width: 42, height: 42, flexShrink: 0, borderRadius: '50%', background: 'var(--secondary)', border: '1px solid var(--border)', display: 'grid', placeItems: 'center', color: attachBusy ? C.muted : 'var(--secondary-foreground)', cursor: attachBusy || intake ? 'default' : 'pointer' }}><Plus size={20} /></motion.button>
-      <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={intake ? 'Type your answer, or "skip" / "stop"' : attachBusy ? 'Reading photo on device…' : pendingImage ? 'Ask a question about this photo…' : 'Ask about NEWS2, qSOFA, trends...'} style={{ flex: 1, padding: '10px 14px', background: '#111827', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 14, color: C.text, fontSize: 16, outline: 'none', minWidth: 0 }} />
+      <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={intake ? 'Type your answer, or "skip" / "stop"' : attachBusy ? 'Reading photo on device…' : pendingImage ? 'Ask a question about this photo…' : 'Ask VEEDA about your health…'} style={{ flex: 1, padding: '10px 14px', background: '#111827', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 14, color: C.text, fontSize: 16, outline: 'none', minWidth: 0 }} />
       <motion.button whileTap={{ scale: .92 }} onClick={() => send()} style={{ width: 42, height: 42, borderRadius: 14, background: C.teal, border: 'none', display: 'grid', placeItems: 'center', color: '#04342C' }}><Send size={17} /></motion.button>
     </div>
     <ChatCameraCapture open={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={file => void onAttachFile(file)} onFallback={() => { setCameraOpen(false); cameraFileRef.current?.click(); }} />
