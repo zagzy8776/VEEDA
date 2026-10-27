@@ -15,7 +15,7 @@ import { imageVisionState, fetchVisionStatus } from '../sensorContext';
 import { buildVisionAnalyzePayload } from '../visionRequest';
 import { formatAttachmentSize, shouldUseNativeCamera, validateChatDocument, validateChatImage } from '../chatAttachments';
 import { ChatCameraCapture } from './ChatCameraCapture';
-import type { Vitals, Analysis, Profile, Location } from '../useVedaApp';
+import type { Vitals, Analysis, Profile, Location, EnvData } from '../useVedaApp';
 import { chatSheetBounds, providerChatReply } from '../chatPresentation';
 const VISION_REGISTRY = buildRegistry([]);
 const VISION_LOCAL = imageVisionState(VISION_REGISTRY);
@@ -38,7 +38,7 @@ interface PendingDocument { file: File; }
 interface NearbyPlace { name: string; type?: string; category?: string; distM?: number; phone?: string | null; }
 const SUGGESTIONS = ['Summarize current clinical risk', 'Explain the NEWS2 score', 'Review oxygenation trend', 'Assess sepsis risk', 'How is recovery trending?', 'Report a symptom'];
 
-export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed = true, subjectLabel, location, profile }: {
+export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed = true, subjectLabel, location, profile, environment }: {
   open: boolean; onClose: () => void; vitals: Vitals; analysis: Analysis | null; wellnessScore: number | null; profile: Profile | null;
   /** False for a child or unknown age: NEWS2/qSOFA must not be shown. */
   adultScoresAllowed?: boolean;
@@ -46,6 +46,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
   subjectLabel?: string;
   /** Device position, used to name mapped hospitals and pharmacies. */
   location?: Location | null;
+  environment?: EnvData;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -195,6 +196,7 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
           message: content, vitals, analysis, patient_id: actor.patientId, history,
           subject: { adultScoresAllowed, label: subjectLabel ?? null },
           localGuidance: local.reply,
+          environment,
         }),
       });
       if (ai.status === 429) {

@@ -31,6 +31,10 @@ export interface EnvData {
   weather: string;
   gps: string;
   outsideTemp: number | null;
+  feelsLike?: number | null;
+  humidity?: number | null;
+  retrievedAt?: string;
+  weatherSource?: string;
 }
 
 export interface Location {
@@ -232,6 +236,8 @@ export function useVedaApp() {
       w?.apparentTemperature != null && Number.isFinite(Number(w.apparentTemperature))
         ? Math.round(Number(w.apparentTemperature))
         : null;
+    let humidity = w?.humidity ?? null;
+    let weatherSource = w?.source || 'unavailable';
     let precip = Number(w?.precipitation || 0);
     let wind = Number(w?.windSpeed || 0);
     let weatherLabel = (w?.description || '').trim();
@@ -246,6 +252,8 @@ export function useVedaApp() {
         if (r.ok) {
           const om = await r.json();
           const c = om.current || {};
+          humidity = c.relative_humidity_2m ?? humidity;
+          weatherSource = 'open-meteo';
           if (c.temperature_2m != null) temp = Math.round(Number(c.temperature_2m));
           if (c.apparent_temperature != null) feelsLike = Math.round(Number(c.apparent_temperature));
           precip = Number(c.precipitation || precip || 0);
@@ -314,6 +322,7 @@ export function useVedaApp() {
       air: airLabel,
       weather: weatherLabel,
       outsideTemp: temp,
+      feelsLike, humidity, retrievedAt: new Date().toISOString(), weatherSource,
     }));
   }
 

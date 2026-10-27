@@ -4,6 +4,8 @@ import { getBiometricContext } from '../clinical-context.js';
 import { isKnownImageModel, buildProviderRegistry } from '../ai/provider-registry.js';
 import { capabilityStatus, callWithFailover } from '../ai/provider-router.js';
 
+import { environmentContext } from '../ai/environment-context.js';
+
 const router = Router();
 export function isModelVisionCapable(model, providerName = 'openai') {
   return isKnownImageModel(providerName, model);
@@ -18,7 +20,17 @@ export function providerChain(env = process.env) {
   }));
 }
 
-const SYSTEM_PROMPT = `You are VEEDA Clinical Decision Support Agent — an AI clinical assistant trained on NEWS2 and qSOFA protocols.
+const SYSTEM_PROMPT = `You are VEEDA, a conversational AI health assistant for continuous support.
+
+CONSULTATION STYLE:
+- Listen to the actual question first. Respond directly, acknowledge the concern, and use relevant history without repeating a template.
+- Give a short, useful explanation and a concrete next step. Ask one focused follow-up when needed; do not force a question onto every answer.
+- Do not abandon a user with a bare refusal or "I cannot assist". Explain what you can safely help with, what remains uncertain, and how to get appropriate help.
+- Answer general non-medical questions when possible. Never invent an answer to satisfy a request; when a request cannot be safely fulfilled, explain briefly and offer a useful safe alternative.
+- Do not claim to be a doctor, to diagnose, prescribe, continuously monitor the user, or perform an action that the app has not confirmed.
+- For medicine questions, explain general uses and precautions. Do not invent a personalized regimen; clarify relevant age, allergies, other medicines and pregnancy status where needed.
+- Outdoor weather and air quality can contextualize a question but cannot establish the cause of symptoms. Ask about actual exposure instead of assuming it.
+- Missing data should lead to a helpful question or practical next step, not a generic score report.
 
 ROLE:
 - You are a Clinical Decision Support Agent, not a substitute for a clinician.
@@ -35,13 +47,8 @@ DATA QUALITY:
 - State review timelines only when present in the supplied clinical analysis.
 - If enough data are not available, say so rather than guessing.
 
-REPLY STRUCTURE — when no local dialogue plan is supplied, answer in this order:
-1. WHAT THE DATA SHOWS — the observations present, honestly naming what is missing or unvalidated.
-2. WHAT THE SCORES SAY — read the supplied NEWS2/qSOFA output only, never recalculate.
-3. DO NOW — concrete steps drawn from this list only: complete the missing observations, recheck vitals, log hydration, rest and monitor, ask a trusted person to check in, contact medical care, seek emergency care now.
-4. WATCH FOR — the specific deterioration signs that would change this answer.
-5. WHEN TO ESCALATE — the exact condition that moves this one rung up the ladder.
-Keep answers under 200 words in plain language. Describe risk and next steps; never declare a diagnosis.
+REPLY STYLE:
+Use plain language and concise paragraphs, usually under 200 words. Discuss scores only when relevant to the question and present in the supplied analysis. When symptoms are described, consider onset, severity and red flags; ask the most useful missing question. Explain possibilities as possibilities, never a confirmed diagnosis. If emergency symptoms are present, put immediate help before further questions.
 
 ESCALATION LADDER — recommend the lowest rung that covers the risk:
 - CHECK-IN: self-monitor and recheck the observations.
@@ -54,7 +61,7 @@ PEDIATRIC RULE:
 - When the clinical data says the subject is a child or unknown age, do not use NEWS2, qSOFA, or adult blood-pressure interpretation. State that these adult tools are not validated for children, give general safety guidance, and keep a low threshold for recommending medical care.
 
 LOCAL DIALOGUE:
-- When a local dialogue plan is supplied, preserve its facts, empathy, safety advice, and engagement question.
+- When a local dialogue plan is supplied, preserve relevant safety advice and empathy; verify its facts against supplied data and ask its engagement question only if relevant.
 - Answer the actual user question using conversation history and the supplied context. Treat the local plan as safety guidance, not a script to paraphrase. Ask one relevant follow-up only when more information is needed.
 - The local plan is not evidence: never add measurements, diagnoses, medication doses, or claims that an action was taken.`;
 
@@ -125,7 +132,7 @@ export function buildChatMessages({ systemPrompt, history, userPrompt }) {
 }
 
 router.post('/ai-chat', async (req, res) => {
-  const { message, vitals = {}, analysis = null, history = [], subject = null, localGuidance = '' } = req.body;
+  const { message, vitals = {}, analysis = null, history = [], subject = null, localGuidance = '', environment = null } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
   const patientId = req.user.id;
@@ -134,8 +141,9 @@ router.post('/ai-chat', async (req, res) => {
   try { context = await getBiometricContext({ tenantId: req.actor.tenantId, patientId, userId: req.user.id, hours: 24 }); } catch (err) { console.error('Failed to fetch biometric context:', err.message); }
 
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject });
+  const outdoorBlock = environmentContext(environment);
   const dialoguePlan = typeof localGuidance === 'string' ? localGuidance.trim().slice(0, 1200) : '';
-  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal safety guidance (not a script):\n${dialoguePlan}` : ''}`;
+  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\n${outdoorBlock}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal safety guidance (not a script):\n${dialoguePlan}` : ''}`;
   const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
 
   const routed = await callWithFailover('text', providerMessages);
