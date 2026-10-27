@@ -64,7 +64,6 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
   const [vision, setVision] = useState<VisionStatus>(VISION_INITIAL);
   const [viewport, setViewport] = useState<{ height: number; bottom: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const requestSequence = useRef(0);
 
   // Runtime check: ask backend whether a vision-capable provider with a key exists.
   // Never trusts the local allowlist alone (prevents false claims of vision support).
