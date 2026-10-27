@@ -105,7 +105,7 @@ async function issueRefreshToken(client, userId) {
   return { rawToken, expiresAt };
 }
 
-export default function createAuthRouter(options = {}) {
+function createAuthRouter(options = {}) {
   const jwtSecret = options.jwtSecret || process.env.JWT_SECRET;
   const issuer = options.issuer || process.env.JWT_ISSUER || 'veeda-api';
   const audience = options.audience || process.env.JWT_AUDIENCE || 'veeda-client';
@@ -237,3 +237,5 @@ export default function createAuthRouter(options = {}) {
 
   return router;
 }
+
+export default createAuthRouter();

@@ -148,26 +148,46 @@ export async function restoreSession(): Promise<AuthUser | null> {
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const response = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const payload = await readJson<AuthResponse & { error?: string }>(response);
-  if (!response.ok || !payload?.accessToken || !payload.user) throw new Error(payload?.error || 'Unable to log in');
-  return setSession(payload);
+  const controller = new AbortController();
+  const kill = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${BASE}/auth/login`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      signal: controller.signal,
+    });
+    const payload = await readJson<AuthResponse & { error?: string }>(response);
+    if (!response.ok || !payload?.accessToken || !payload.user) throw new Error(payload?.error || 'Unable to log in');
+    return setSession(payload);
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw new Error('Sign-in is taking too long. Check your connection and try again.');
+    throw err;
+  } finally {
+    clearTimeout(kill);
+  }
 }
 
 export async function register(email: string, password: string): Promise<AuthUser> {
-  const response = await fetch(`${BASE}/auth/register`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const payload = await readJson<{ error?: string }>(response);
-  if (!response.ok) throw new Error(payload?.error || 'Unable to register');
+  const controller = new AbortController();
+  const kill = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${BASE}/auth/register`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      signal: controller.signal,
+    });
+    const payload = await readJson<{ error?: string }>(response);
+    if (!response.ok) throw new Error(payload?.error || 'Unable to register');
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw new Error('Registration is taking too long. Check your connection and try again.');
+    throw err;
+  } finally {
+    clearTimeout(kill);
+  }
   return login(email, password);
 }
 
