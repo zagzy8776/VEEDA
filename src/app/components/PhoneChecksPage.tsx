@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Camera, ScanLine } from 'lucide-react';
 import { PHONE_CHECKS, runPhoneCheck, type PhoneCheckOutcome } from '../phoneChecks.ts';
 import { buildRegistry } from '../modelRegistry.ts';
-import { checkQuality, DEFAULT_REQUIREMENT, type CaptureStats } from '../captureQuality.ts';
 
 // Phone-checks surface (Phase 5).
 //
@@ -22,14 +21,10 @@ export interface PhoneChecksPageProps {
 
 export function PhoneChecksPage({ hasConsent = false, onClose }: PhoneChecksPageProps) {
   const [selected, setSelected] = useState(PHONE_CHECKS[0].id);
-  // A real capture would supply these from a canvas; the UI exposes a demo probe
-  // so the working quality gate can be exercised without a camera in this build.
-  const [stats, setStats] = useState<CaptureStats | null>(null);
 
   const check = PHONE_CHECKS.find(c => c.id === selected)!;
   const registry = buildRegistry([]);
-  const outcome: PhoneCheckOutcome = runPhoneCheck(check, stats, hasConsent, registry);
-  const quality = stats ? checkQuality(stats, DEFAULT_REQUIREMENT) : null;
+  const outcome: PhoneCheckOutcome = runPhoneCheck(check, null, hasConsent, registry);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1500, background: '#0A1120', overflowY: 'auto', padding: 18, color: C.text }}>
@@ -67,17 +62,9 @@ export function PhoneChecksPage({ hasConsent = false, onClose }: PhoneChecksPage
           Guided capture keeps the area in the frame and checks the photo (focus, light, framing)
           before anything is used. No photo is recorded by default.
         </div>
-        <button
-          onClick={() => setStats({ width: 1000, height: 1000, sharpness: 0.8, brightness: 0.5, coverage: 0.5 })}
-          style={{ marginTop: 10, padding: '9px 14px', borderRadius: 8, border: 0, background: C.teal, color: '#04342C', fontWeight: 800, cursor: 'pointer' }}
-        >
-          Simulate a good capture
-        </button>
-        {quality && (
-          <div style={{ fontSize: 12, marginTop: 8, color: quality.ok ? C.teal : C.amber }}>
-            Quality gate: {quality.ok ? 'photo looks usable' : `retake needed — ${quality.ok === false ? quality.guidance : ''}`}
-          </div>
-        )}
+        <div style={{ fontSize: 12, marginTop: 10, color: C.amber }}>
+          Capture is unavailable until a validated phone-check model and real camera pipeline are configured.
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>

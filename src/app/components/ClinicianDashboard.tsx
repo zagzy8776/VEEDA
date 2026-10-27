@@ -76,9 +76,9 @@ export function ClinicianDashboard({ history }: { history: BiometricEvent[] }) {
 
   const roster = useMemo<PatientRow[]>(() => {
     if (backendRoster) {
-      const rows = backendRoster.map(row => ({
+      const rows = backendRoster.filter(row => typeof row.patientId === 'string' && row.patientId.trim()).map(row => ({
         id: row.patientId,
-        ward: row.wardId || 'ward-a',
+        ward: row.wardId || 'Unassigned ward',
         bed: row.bed || '-',
         latest: row.latest || {},
         news2: row.news2?.total ?? 0,
@@ -88,8 +88,9 @@ export function ClinicianDashboard({ history }: { history: BiometricEvent[] }) {
     }
     const patients = new Map<string, PatientRow>();
     history.forEach((event: any) => {
-      const id = event.patient_id || event.patientId || 'patient-001';
-      if (!patients.has(id)) patients.set(id, { id, ward: event.ward_id || 'ward-a', bed: event.bed || '-', latest: {}, news2: 0, singleThree: false });
+      const id = event.patient_id || event.patientId;
+      if (typeof id !== 'string' || !id.trim()) return;
+      if (!patients.has(id)) patients.set(id, { id, ward: event.ward_id || 'Unassigned ward', bed: event.bed || '-', latest: {}, news2: 0, singleThree: false });
       const row = patients.get(id)!;
       if (!row.latest[event.type] || new Date(event.timestamp) > new Date(row.latest[event.type].timestamp)) row.latest[event.type] = event;
     });

@@ -26,7 +26,9 @@ function loadPack() {
       return null;
     }
   }
-  if (process.env.NODE_ENV === 'production') return null;
+  // Sample clinical guidance is never automatic. It is available only for an
+  // explicitly opted-in local/test environment and remains blocked in production.
+  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_SAMPLE_CLINICAL_PACKS !== 'true') return null;
   try {
     return JSON.parse(
       readFileSync(fileURLToPath(new URL('../triage/referralPack.sample.json', import.meta.url)), 'utf8'),
