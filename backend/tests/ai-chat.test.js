@@ -16,6 +16,9 @@ delete process.env.CEREBRAS_API_KEY;
 delete process.env.GROQ_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPENROUTER_API_KEY;
+delete process.env.GEMINI_API_KEY;
+delete process.env.SELF_HOSTED_API_KEY;
+delete process.env.SELF_HOSTED_ALLOW_NO_AUTH;
 
 const { app } = await import('../server.js');
 const { sanitizeHistory, buildChatMessages, providerChain } = await import('../routes/ai-chat.js');
@@ -142,6 +145,7 @@ test('when every provider is down the chat still answers with the local dialogue
   });
   assert.equal(result.status, 200);
   assert.equal(result.body.source, 'local');
+  assert.equal(result.body.aiState, 'NOT_CONFIGURED');
   assert.equal(result.body.conversationReply, guidance);
   // The reply stays a conversation: it acknowledges the user and asks back.
   assert.match(result.body.conversationReply, /\?$/);

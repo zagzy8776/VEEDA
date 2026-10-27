@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { audit } from '../security.js';
 import { getBiometricContext } from '../clinical-context.js';
 import { isKnownImageModel, buildProviderRegistry } from '../ai/provider-registry.js';
-import { callWithFailover } from '../ai/provider-router.js';
+import { capabilityStatus, callWithFailover } from '../ai/provider-router.js';
 
 const router = Router();
 export function isModelVisionCapable(model, providerName = 'openai') {
@@ -55,7 +55,7 @@ PEDIATRIC RULE:
 
 LOCAL DIALOGUE:
 - When a local dialogue plan is supplied, preserve its facts, empathy, safety advice, and engagement question.
-- Make only the wording more natural; do not replace the plan with a generic answer or a checklist.
+- Answer the actual user question using conversation history and the supplied context. Treat the local plan as safety guidance, not a script to paraphrase. Ask one relevant follow-up only when more information is needed.
 - The local plan is not evidence: never add measurements, diagnoses, medication doses, or claims that an action was taken.`;
 
 function buildClinicalContext({ vitals, analysis, context, subject }) {
@@ -135,7 +135,7 @@ router.post('/ai-chat', async (req, res) => {
 
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject });
   const dialoguePlan = typeof localGuidance === 'string' ? localGuidance.trim().slice(0, 1200) : '';
-  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal dialogue plan to preserve while improving only the wording:\n${dialoguePlan}` : ''}`;
+  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal safety guidance (not a script):\n${dialoguePlan}` : ''}`;
   const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
 
   const routed = await callWithFailover('text', providerMessages);
@@ -149,15 +149,17 @@ router.post('/ai-chat', async (req, res) => {
   // The conversation must not die with them: the local dialogue plan the client
   // already computed is returned verbatim, so the reply stays conversational
   // with zero providers online.
+  const aiStatus = capabilityStatus('text');
+  const aiState = routed.errors.length ? 'PROVIDER_UNAVAILABLE' : aiStatus.state;
   if (dialoguePlan) {
     await audit(req, 'READ', patientId);
-    return res.json({ conversationReply: dialoguePlan, source: 'local', biometricContext: context.promptBlock });
+    return res.json({ conversationReply: dialoguePlan, source: 'local', aiState, biometricContext: context.promptBlock });
   }
 
   const { clinicalChatReply } = await import('../clinical-context.js');
   const reply = clinicalChatReply({ message, vitals, analysis, context });
   await audit(req, 'READ', patientId);
-  return res.json({ conversationReply: reply, source: 'rule', biometricContext: context.promptBlock });
+  return res.json({ conversationReply: reply, source: 'rule', aiState, biometricContext: context.promptBlock });
 });
 
 export default router;
