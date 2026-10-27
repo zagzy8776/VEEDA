@@ -207,10 +207,22 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
         return;
       }
       const enhanced = ai.data?.source === 'ai' ? ai.data.conversationReply?.trim() : null;
-      if (!enhanced) return;
-      setMessages(current => current.map(msg => msg.id === replyId ? { ...msg, content: enhanced } : msg));
+      if (enhanced) {
+        setMessages(current => current.map(msg => msg.id === replyId ? { ...msg, content: enhanced } : msg));
+        return;
+      }
+      const reason = ai.status === 401 ? 'Please sign in to enable AI chat.'
+        : ai.status === 403 ? 'AI chat access was denied.'
+        : ai.status === 0 ? 'The AI server could not be reached.'
+        : ai.data?.source === 'local' || ai.data?.source === 'rule' ? 'The configured AI providers did not return a response.'
+        : `AI chat was unavailable${ai.status ? ` (HTTP ${ai.status})` : ''}.`;
+      setMessages(current => current.map(msg => msg.id === replyId
+        ? { ...msg, content: `${local.reply}\n\n${reason} This is an offline support response, not a live AI answer.` }
+        : msg));
     } catch {
-      // Keep the safe local response if the provider is unreachable.
+      setMessages(current => current.map(msg => msg.id === replyId
+        ? { ...msg, content: `${local.reply}\n\nAI chat could not be reached. This is an offline support response.` }
+        : msg));
     }
   }
 
@@ -357,9 +369,9 @@ export function ChatPanel({ open, onClose, vitals, analysis, adultScoresAllowed 
     const replyId = Date.now() + 1;
     setMessages(current => [...current,
       { id: Date.now(), role: 'user', content },
-      { id: replyId, role: 'assistant', content: local.reply },
+      { id: replyId, role: 'assistant', content: local.urgent ? local.reply : 'VEEDA is thinking…' },
     ]);
-    if (local.providerEligible) void enhanceWithProvider(content, local, replyId, history);
+    if (!local.urgent) void enhanceWithProvider(content, local, replyId, history);
   }
 
   return <AnimatePresence>{open && <><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', zIndex: 500 }} /><motion.div initial={{ y: '100%', x: '-50%' }} animate={{ y: 0, x: '-50%' }} exit={{ y: '100%', x: '-50%' }} style={{ position: 'fixed', top: viewport ? viewport.top + (keyboardOpen ? 0 : Math.max(0, viewport.height - Math.min(viewport.height * 0.92, 760))) : undefined, bottom: viewport ? undefined : 0, left: '50%', width: '100%', maxWidth: 390, height: viewport ? (keyboardOpen ? viewport.height : Math.min(viewport.height * 0.92, 760)) : 'min(92dvh, 760px)', maxHeight: viewport ? viewport.height : 'calc(100dvh - 12px)', display: 'flex', flexDirection: 'column', background: 'rgba(9,14,26,0.98)', borderRadius: '24px 24px 0 0', zIndex: 600, overflow: 'hidden', border: '0.5px solid rgba(255,255,255,0.1)', borderBottom: 'none' }}>
