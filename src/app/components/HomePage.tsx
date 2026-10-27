@@ -54,10 +54,10 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
   const alerts = analysis?.riskLevel === 'Urgent' ? 1 : analysis?.riskLevel === 'Watch' ? 1 : 0;
 
   const vitalItems = [
-    { id: 'hr', icon: Heart, color: C.red, label: 'Heart rate', value: vitals.heartRate, unit: 'bpm', pct: vitals.heartRate ? Math.min(100, (vitals.heartRate / 200) * 100) : 0, source: sources.heartRate },
-    { id: 'resp', icon: Wind, color: C.blue, label: 'Breathing', value: vitals.respiratory, unit: 'br/min', pct: vitals.respiratory ? Math.min(100, (vitals.respiratory / 40) * 100) : 0, source: sources.respiratory },
-    { id: 'hydration', icon: Droplet, color: C.blue, label: 'Hydration', value: vitals.hydration, unit: '%', pct: vitals.hydration ?? 0, source: sources.hydration },
-    { id: 'temp', icon: Thermometer, color: C.teal, label: 'Temperature', value: vitals.skinTemp, unit: '°C', pct: vitals.skinTemp ? Math.min(100, ((vitals.skinTemp - 35) / 5) * 100) : 0, source: sources.skinTemp },
+    { id: 'hr', icon: Heart, color: C.red, label: 'Heart rate', value: vitals.heartRate, unit: 'bpm', pct: vitals.heartRate ? Math.min(100, (vitals.heartRate / 200) * 100) : 0, source: sources.heartRate, hint: 'Tap Vitals to measure' },
+    { id: 'resp', icon: Wind, color: C.blue, label: 'Breathing', value: vitals.respiratory, unit: 'br/min', pct: vitals.respiratory ? Math.min(100, (vitals.respiratory / 40) * 100) : 0, source: sources.respiratory, hint: 'Tap Vitals to measure' },
+    { id: 'hydration', icon: Droplet, color: C.blue, label: 'Hydration', value: vitals.hydration, unit: '%', pct: vitals.hydration ?? 0, source: sources.hydration, hint: 'Log water in Vitals — a phone cannot measure hydration' },
+    { id: 'temp', icon: Thermometer, color: C.teal, label: 'Temperature', value: vitals.skinTemp, unit: '°C', pct: vitals.skinTemp ? Math.min(100, ((vitals.skinTemp - 35) / 5) * 100) : 0, source: sources.skinTemp, hint: 'Manual entry in Vitals' },
   ];
 
   const envItems = [
@@ -130,7 +130,7 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
                   </span>
                   <span style={{ fontSize: 10, color: C.muted }}>{item.unit}</span>
                 </div>
-                <div style={{ fontSize: 10, color: C.muted, marginBottom: 10 }}>{!item.value && (item.source === 'none' || item.source === 'unavailable' || !item.source) ? 'Tap Vitals to measure' : (item.source || '')}</div>
+                <div style={{ fontSize: 10, color: C.muted, marginBottom: 10 }}>{!item.value && (item.source === 'none' || item.source === 'unavailable' || !item.source) ? item.hint : (item.source || '')}</div>
                 <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                   <motion.div initial={{ width: 0 }} animate={{ width: `${item.pct}%` }} transition={{ delay: 0.3, duration: 0.8 }}
                     style={{ height: '100%', borderRadius: 2, background: item.color }} />

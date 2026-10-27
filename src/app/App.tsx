@@ -51,6 +51,8 @@ const HistoryPage = lazy(() => import('./components/HistoryPage').then(m => ({ d
 const ProfilePage = lazy(() => import('./components/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const SummaryPage = lazy(() => import('./components/SummaryPage').then(m => ({ default: m.SummaryPage })));
 const RemindersPage = lazy(() => import('./components/RemindersPage').then(m => ({ default: m.RemindersPage })));
+const MedicinePage = lazy(() => import('./components/MedicinePage').then(m => ({ default: m.MedicinePage })));
+const FoodScanPage = lazy(() => import('./components/FoodScanPage').then(m => ({ default: m.FoodScanPage })));
 const BpGlucosePage = lazy(() => import('./components/BpGlucosePage').then(m => ({ default: m.BpGlucosePage })));
 const EmergencyContactsPage = lazy(() => import('./components/EmergencyContactsPage').then(m => ({ default: m.EmergencyContactsPage })));
 const AlertsPage = lazy(() => import('./components/AlertsPage').then(m => ({ default: m.AlertsPage })));
@@ -179,6 +181,8 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
   const [chatOpen, setChatOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [medicineOpen, setMedicineOpen] = useState(false);
+  const [foodOpen, setFoodOpen] = useState(false);
   const [bpGlucoseOpen, setBpGlucoseOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -268,13 +272,15 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
             {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
             {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></div>}
             {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onOpenPhoneChecks={() => setPhoneChecksOpen(true)} onOpenConsult={() => setConsultOpen(true)} onOpenCare={() => setCareOpen(true)} onOpenAccess={() => setAccessOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
+            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenMedicine={() => setMedicineOpen(true)} onOpenFood={() => setFoodOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onOpenPhoneChecks={() => setPhoneChecksOpen(true)} onOpenConsult={() => setConsultOpen(true)} onOpenCare={() => setCareOpen(true)} onOpenAccess={() => setAccessOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />
       </div>
       <Suspense fallback={null}>{summaryOpen && <SummaryPage open={summaryOpen} onClose={() => setSummaryOpen(false)} userId={user?.id ?? 'local'} sections={buildSummarySections(app)} />}</Suspense>
       <Suspense fallback={null}>{remindersOpen && <RemindersPage open={remindersOpen} onClose={() => setRemindersOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
+      <Suspense fallback={null}>{medicineOpen && <MedicinePage open={medicineOpen} onClose={() => setMedicineOpen(false)} userId={user?.id ?? 'local'} age={app.profile?.age} />}</Suspense>
+      <Suspense fallback={null}>{foodOpen && <FoodScanPage open={foodOpen} onClose={() => setFoodOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{bpGlucoseOpen && <BpGlucosePage open={bpGlucoseOpen} onClose={() => setBpGlucoseOpen(false)} userId={user?.id ?? 'local'} />}</Suspense>
       <Suspense fallback={null}>{contactsOpen && <EmergencyContactsPage open={contactsOpen} onClose={() => setContactsOpen(false)} userId={user?.id ?? 'local'} locationText={app.location.lat != null && app.location.lng != null ? `${app.location.lat.toFixed(4)}, ${app.location.lng.toFixed(4)}` : undefined} userName={app.profile?.name} />}</Suspense>
       <Suspense fallback={null}>{alertsOpen && <AlertsPage pack={null} triggered={[]} production={(import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD === true} emergencyNumber={resolveEmergencyNumber()} onClose={() => setAlertsOpen(false)} />}</Suspense>
@@ -285,7 +291,7 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
       <Suspense fallback={null}>{consultOpen && <ConsultPage strokePack={null} production={(import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD === true} onClose={() => setConsultOpen(false)} />}</Suspense>
       <Suspense fallback={null}>{careOpen && <CarePage production={(import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD === true} emergencyNumber={resolveEmergencyNumber()} onClose={() => setCareOpen(false)} />}</Suspense>
       <Suspense fallback={null}>{accessOpen && <AccessPage userId={user?.id ?? 'local'} storage={typeof localStorage !== 'undefined' ? localStorage : undefined} onClose={() => setAccessOpen(false)} />}</Suspense>
-      <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} adultScoresAllowed={scoresAllowed} subjectLabel={activeDependent?.display_name} />}</Suspense>
+      <Suspense fallback={null}>{chatOpen && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} vitals={app.vitals} analysis={app.analysis} wellnessScore={app.wellnessScore} profile={app.profile} adultScoresAllowed={scoresAllowed} subjectLabel={activeDependent?.display_name} location={app.location} />}</Suspense>
       {legacyId && <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', padding: 24 }}>
         <div style={{ width: '100%', maxWidth: 360, background: '#0D1525', border: '1px solid rgba(45,212,164,0.35)', borderRadius: 20, padding: 22, color: '#E2F4F0' }}>
           <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Link previous VEEDA data?</div>

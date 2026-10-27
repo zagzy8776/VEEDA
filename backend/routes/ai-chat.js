@@ -1,12 +1,22 @@
 import { Router } from 'express';
 import { audit } from '../security.js';
 import { getBiometricContext } from '../clinical-context.js';
+import { isKnownImageModel, buildProviderRegistry } from '../ai/provider-registry.js';
+import { callWithFailover } from '../ai/provider-router.js';
 
 const router = Router();
-const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const cerebrasModel = process.env.CEREBRAS_MODEL || 'gpt-oss-120b';
-const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+export function isModelVisionCapable(model, providerName = 'openai') {
+  return isKnownImageModel(providerName, model);
+}
+
+export function providerChain(env = process.env) {
+  return buildProviderRegistry(env).map((provider) => ({
+    ...provider,
+    model: provider.models.text,
+    url: provider.baseUrl,
+    supportsImageInput: provider.capabilitiesByModel.image.image,
+  }));
+}
 
 const SYSTEM_PROMPT = `You are VEEDA Clinical Decision Support Agent — an AI clinical assistant trained on NEWS2 and qSOFA protocols.
 
@@ -23,11 +33,39 @@ DATA QUALITY:
 - Distinguish measured, manually entered, unavailable, and derived values.
 - Do not present wellness estimates as clinical measurements.
 - State review timelines only when present in the supplied clinical analysis.
-- If enough data are not available, say so rather than guessing.`;
+- If enough data are not available, say so rather than guessing.
 
-function buildClinicalContext({ vitals, analysis, context }) {
-  const news2 = analysis?.clinicalScores?.news2;
-  const qsofa = analysis?.clinicalScores?.qsofa;
+REPLY STRUCTURE — when no local dialogue plan is supplied, answer in this order:
+1. WHAT THE DATA SHOWS — the observations present, honestly naming what is missing or unvalidated.
+2. WHAT THE SCORES SAY — read the supplied NEWS2/qSOFA output only, never recalculate.
+3. DO NOW — concrete steps drawn from this list only: complete the missing observations, recheck vitals, log hydration, rest and monitor, ask a trusted person to check in, contact medical care, seek emergency care now.
+4. WATCH FOR — the specific deterioration signs that would change this answer.
+5. WHEN TO ESCALATE — the exact condition that moves this one rung up the ladder.
+Keep answers under 200 words in plain language. Describe risk and next steps; never declare a diagnosis.
+
+ESCALATION LADDER — recommend the lowest rung that covers the risk:
+- CHECK-IN: self-monitor and recheck the observations.
+- TRUSTED CONTACT: ask a family member or carer to check in.
+- MEDICAL CARE: contact a clinic or clinician today.
+- EMERGENCY: emergency services now.
+You can only RECOMMEND a rung. Never claim you started, called, or notified anyone — every escalation is confirmed by a human in the app.
+
+PEDIATRIC RULE:
+- When the clinical data says the subject is a child or unknown age, do not use NEWS2, qSOFA, or adult blood-pressure interpretation. State that these adult tools are not validated for children, give general safety guidance, and keep a low threshold for recommending medical care.
+
+LOCAL DIALOGUE:
+- When a local dialogue plan is supplied, preserve its facts, empathy, safety advice, and engagement question.
+- Make only the wording more natural; do not replace the plan with a generic answer or a checklist.
+- The local plan is not evidence: never add measurements, diagnoses, medication doses, or claims that an action was taken.`;
+
+function buildClinicalContext({ vitals, analysis, context, subject }) {
+  // The client is the only place that knows the selected subject's age band, so
+  // the pediatric gate must be enforced here at the prompt boundary: no adult
+  // scores reach the model for a child or unknown-age profile, even if a stale
+  // analysis object still carries them.
+  const adultScoresAllowed = subject?.adultScoresAllowed !== false;
+  const news2 = adultScoresAllowed ? analysis?.clinicalScores?.news2 : null;
+  const qsofa = adultScoresAllowed ? analysis?.clinicalScores?.qsofa : null;
   const parts = ['CURRENT VITALS:'];
   if (vitals.heartRate != null) parts.push(`- Heart Rate: ${vitals.heartRate} bpm`);
   if (vitals.respiratory != null) parts.push(`- Respiratory Rate: ${vitals.respiratory} /min`);
@@ -38,13 +76,14 @@ function buildClinicalContext({ vitals, analysis, context }) {
   parts.push(`- Consciousness: ${vitals.consciousness || 'alert'}`);
   parts.push(`- Supplemental Oxygen: ${vitals.supplementalOxygen ? 'Yes' : 'No'}`);
 
+  if (!adultScoresAllowed) parts.push('', 'SUBJECT NOTE: child or unknown age — NEWS2, qSOFA, and adult BP interpretation are not validated for this profile.');
   if (news2) {
     parts.push('', 'NEWS2 SCORE:', `- Total: ${news2.total}`, `- Urgency: ${news2.urgency?.level || 'Unknown'}`, `- Action: ${news2.urgency?.action || 'Use local protocol'}`);
     if (news2.urgency?.timelineMinutes != null) parts.push(`- Review timeline: within ${news2.urgency.timelineMinutes} minutes`);
     if (news2.missing?.length) parts.push(`- Missing parameters: ${news2.missing.join(', ')}`);
   }
   if (qsofa) parts.push('', 'qSOFA SCORE:', `- Total: ${qsofa.total}`, `- Sepsis risk trigger: ${qsofa.sepsisRiskFlag ? 'YES' : 'No'}`);
-  if (analysis?.riskLevel) parts.push('', `Overall Risk Level: ${analysis.riskLevel}`);
+  if (adultScoresAllowed && analysis?.riskLevel) parts.push('', `Overall Risk Level: ${analysis.riskLevel}`);
 
   const latestWindow = context?.summaries?.[0];
   if (latestWindow) {
@@ -60,28 +99,33 @@ function buildClinicalContext({ vitals, analysis, context }) {
   return parts.join('\n');
 }
 
-async function callOpenAICompatible(url, apiKey, model, system, user) {
-  if (!apiKey) return null;
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature: 0.2,
-      max_tokens: 900,
-    }),
-  });
-  if (!r.ok) throw new Error(`${model} HTTP ${r.status}`);
-  const data = await r.json();
-  return data?.choices?.[0]?.message?.content?.trim() || null;
+const MAX_HISTORY_TURNS = 6;
+const MAX_TURN_CHARS = 600;
+
+// The conversation history is client-supplied, so it is validated at the trust
+// boundary: only real user/assistant turns survive, capped in count and length
+// so a bloated or hostile payload cannot blow the provider token budget.
+export function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const turns = [];
+  for (const entry of history.slice(-MAX_HISTORY_TURNS)) {
+    const role = entry?.role === 'assistant' ? 'assistant' : entry?.role === 'user' ? 'user' : null;
+    const content = typeof entry?.content === 'string' ? entry.content.trim().slice(0, MAX_TURN_CHARS) : '';
+    if (role && content) turns.push({ role, content });
+  }
+  return turns;
+}
+
+export function buildChatMessages({ systemPrompt, history, userPrompt }) {
+  return [
+    { role: 'system', content: systemPrompt },
+    ...sanitizeHistory(history),
+    { role: 'user', content: userPrompt },
+  ];
 }
 
 router.post('/ai-chat', async (req, res) => {
-  const { message, vitals = {}, analysis = null } = req.body;
+  const { message, vitals = {}, analysis = null, history = [], subject = null, localGuidance = '' } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
   const patientId = req.user.id;
@@ -89,25 +133,25 @@ router.post('/ai-chat', async (req, res) => {
   let context = { available: false, promptBlock: '', summaries: [] };
   try { context = await getBiometricContext({ tenantId: req.actor.tenantId, patientId, userId: req.user.id, hours: 24 }); } catch (err) { console.error('Failed to fetch biometric context:', err.message); }
 
-  const clinicalBlock = buildClinicalContext({ vitals, analysis, context });
-  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}`;
+  const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject });
+  const dialoguePlan = typeof localGuidance === 'string' ? localGuidance.trim().slice(0, 1200) : '';
+  const userPrompt = `Here is the current clinical data:\n${clinicalBlock}\n\nUser question: ${message}${dialoguePlan ? `\n\nLocal dialogue plan to preserve while improving only the wording:\n${dialoguePlan}` : ''}`;
+  const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
 
-  const providers = [
-    { name: 'cerebras', url: CEREBRAS_API_URL, key: process.env.CEREBRAS_API_KEY, model: cerebrasModel },
-    { name: 'groq', url: GROQ_API_URL, key: process.env.GROQ_API_KEY, model: groqModel },
-  ];
+  const routed = await callWithFailover('text', providerMessages);
+  if (routed.reply) {
+    await audit(req, 'READ', patientId);
+    return res.json({ conversationReply: routed.reply, source: 'ai', provider: routed.provider.name, model: routed.model, biometricContext: context.promptBlock });
+  }
+  for (const error of routed.errors) console.error(`${error.provider} chat error:`, error.message);
 
-  for (const provider of providers) {
-    if (!provider.key) continue;
-    try {
-      const reply = await callOpenAICompatible(provider.url, provider.key, provider.model, SYSTEM_PROMPT, userPrompt);
-      if (reply) {
-        await audit(req, 'READ', patientId);
-        return res.json({ conversationReply: reply, source: 'ai', provider: provider.name, model: provider.model, biometricContext: context.promptBlock });
-      }
-    } catch (err) {
-      console.error(`${provider.name} chat error:`, err.message);
-    }
+  // Every provider failed (a key was rate-limited, revoked, or unreachable).
+  // The conversation must not die with them: the local dialogue plan the client
+  // already computed is returned verbatim, so the reply stays conversational
+  // with zero providers online.
+  if (dialoguePlan) {
+    await audit(req, 'READ', patientId);
+    return res.json({ conversationReply: dialoguePlan, source: 'local', biometricContext: context.promptBlock });
   }
 
   const { clinicalChatReply } = await import('../clinical-context.js');

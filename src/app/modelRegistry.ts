@@ -22,6 +22,7 @@ export type MlTask =
   | 'sickle_cell_crisis'
   | 'sickle_cell'
   | 'breathing_trouble'
+  | 'audio_distress'
   | 'hemoglobin_anemia'
   | 'spo2'
   | 'jaundice'
@@ -30,7 +31,10 @@ export type MlTask =
   | 'malaria'
   | 'blood_cell_count'
   | 'urine_strip'
-  | 'spoilage';
+  | 'spoilage'
+  | 'food_recognition'
+  /** Package OCR: on-device Tesseract path is separate; this slot is for a future validated vision model. */
+  | 'package_reading';
 
 export interface ValidationRecord {
   /** Reported error range, e.g. "±2 g/dL", as text (no invented numbers here). */

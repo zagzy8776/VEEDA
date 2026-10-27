@@ -11,6 +11,7 @@ import {
   parseReading,
   readingsFilename,
   readingsStorageKey,
+  temperatureTrend,
   validateReading,
   type Reading,
   type StorageLike,
@@ -144,6 +145,34 @@ test('glucoseTrend never mixes units', () => {
   assert.equal(mmol.average, 5.5);
 });
 
+// --- body temperature (typed or from a Bluetooth thermometer) ---
+
+test('a plausible body temperature is accepted and an impossible one rejected', () => {
+  assert.equal(validateReading({ kind: 'body_temperature', value: 37.2, unit: '°C', source: 'device', recordedAt: AT }).ok, true);
+  assert.equal(validateReading({ kind: 'body_temperature', value: 98.6, unit: '°F', source: 'typed_in', recordedAt: AT }).ok, true);
+  assert.equal(validateReading({ kind: 'body_temperature', value: 120, unit: '°C', source: 'typed_in', recordedAt: AT }).ok, false);
+});
+
+test('parseReading keeps the temperature unit exactly as given', () => {
+  const c = parseReading({ kind: 'body_temperature', value: 36.8, unit: '°C', source: 'device', recordedAt: AT });
+  assert.equal(c.ok, true);
+  assert.equal((c.reading as any).unit, '°C');
+  assert.equal((c.reading as any).source, 'device');
+  assert.equal(parseReading({ kind: 'body_temperature', value: 36.8, unit: 'K' as any, recordedAt: AT }).ok, false);
+});
+
+test('temperatureTrend never mixes °C and °F', () => {
+  const withTemps: Reading[] = [
+    ...sample,
+    { kind: 'body_temperature', value: 36.8, unit: '°C', source: 'typed_in', recordedAt: '2026-06-01T08:00:00.000Z' },
+    { kind: 'body_temperature', value: 37.4, unit: '°C', source: 'device', recordedAt: '2026-06-02T08:00:00.000Z' },
+    { kind: 'body_temperature', value: 99.0, unit: '°F', source: 'typed_in', recordedAt: '2026-06-01T08:00:00.000Z' },
+  ];
+  assert.equal(temperatureTrend(withTemps, '°C').average, 37.1);
+  assert.equal(temperatureTrend(withTemps, '°F').average, 99);
+  assert.equal(temperatureTrend(withTemps, '°F').count, 1);
+});
+
 // --- CSV export ---
 
 test('CSV export includes the unit, source and timestamp for every reading', () => {
@@ -157,6 +186,13 @@ test('CSV export includes the unit, source and timestamp for every reading', () 
 test('the CSV filename is neutral and date-stamped', () => {
   assert.equal(readingsFilename('2026-06-01T08:00:00.000Z'), 'bp-glucose-2026-06-01.csv');
   assert.doesNotMatch(readingsFilename('2026-06-01T08:00:00.000Z'), /veeda|patient|name/i);
+});
+
+test('CSV export includes a body-temperature row', () => {
+  const csv = buildReadingsCsv([
+    { kind: 'body_temperature', value: 37.2, unit: '°C', source: 'device', recordedAt: AT },
+  ]);
+  assert.match(csv, /body_temperature,37\.2,,,°C,,device,2026-06-01T08:00:00\.000Z/);
 });
 
 // --- export-before-logout action ---

@@ -37,6 +37,14 @@ test('glucose is bounded per unit and the unit must be known', () => {
   assert.equal(validateReadingInput({ clientId: 'g3', kind: 'blood_glucose', value: 5, unit: 'furlongs', source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z' }).ok, false);
 });
 
+test('body temperature is bounded per unit and the unit must be known', () => {
+  assert.equal(validateReadingInput({ clientId: 't1', kind: 'body_temperature', value: 37.2, unit: '°C', source: 'device', recordedAt: '2026-01-01T00:00:00Z' }).ok, true);
+  assert.equal(validateReadingInput({ clientId: 't2', kind: 'body_temperature', value: 98.6, unit: '°F', source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z' }).ok, true);
+  // 120 is impossible in either unit (a typo or the wrong unit).
+  assert.equal(validateReadingInput({ clientId: 't3', kind: 'body_temperature', value: 120, unit: '°C', source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z' }).ok, false);
+  assert.equal(validateReadingInput({ clientId: 't4', kind: 'body_temperature', value: 37, unit: 'kelvin', source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z' }).ok, false);
+});
+
 test('a missing clientId, bad source, or bad timestamp is rejected', () => {
   assert.equal(validateReadingInput({ kind: 'blood_pressure', systolic: 120, diastolic: 80, source: 'typed_in', recordedAt: '2026-01-01T00:00:00Z' }).ok, false);
   assert.equal(validateReadingInput({ clientId: 'x', kind: 'blood_pressure', systolic: 120, diastolic: 80, source: 'guessed', recordedAt: '2026-01-01T00:00:00Z' }).ok, false);
@@ -50,6 +58,11 @@ test('toRow keeps the sent unit and never infers it', () => {
   const bp = toRow({ kind: 'blood_pressure', systolic: 120, diastolic: 80 });
   assert.equal(bp.unit, 'mmHg');
   assert.equal(bp.value, null);
+  const temp = toRow({ kind: 'body_temperature', value: 37.2, unit: '°C' });
+  assert.equal(temp.unit, '°C');
+  assert.equal(temp.value, 37.2);
+  assert.equal(temp.context, null);
+  assert.equal(temp.systolic, null);
 });
 
 // ── The route: idempotent upsert and tenant from server config ──
@@ -195,4 +208,11 @@ test('migration 008 creates readings with an idempotent per-owner client key', a
   assert.match(migration, /CREATE TABLE IF NOT EXISTS readings/);
   assert.match(migration, /UNIQUE \(owner_user_id, client_id\)/);
   assert.match(migration, /owner_user_id\s+UUID\s+NOT NULL REFERENCES users\(id\) ON DELETE CASCADE/);
+});
+
+test('migration 012 widens the readings kind CHECK to allow body_temperature', async () => {
+  const migration = await readFile(new URL('../migrations/012_readings_body_temperature.sql', import.meta.url), 'utf8');
+  // The old constraint must be dropped, or a temperature row would still be rejected.
+  assert.match(migration, /DROP CONSTRAINT IF EXISTS readings_kind_check/);
+  assert.match(migration, /CHECK \(kind IN \('blood_pressure', 'blood_glucose', 'body_temperature'\)\)/);
 });

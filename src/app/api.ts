@@ -4,6 +4,9 @@ import { contactsStorageKey } from './emergencyContacts.ts';
 import { activeSubjectKey } from './dependents.ts';
 import { caregiversStorageKey } from './caregivers.ts';
 import { profileLogStorageKey } from './profileLog.ts';
+import { consultationsStorageKey } from './consultations.ts';
+import { adherenceStorageKey, medicationPlansStorageKey } from './medicines.ts';
+import { patientHealthContextKey } from './patientHealthContext.ts';
 import { offlineQueueKey } from './access.ts';
 import { pendingSyncKey, syncReadings, syncedIdsKey } from './readingsSync.ts';
 import { recordEmergencyNumber } from './emergencyNumber.ts';
@@ -38,6 +41,10 @@ export function perUserDeviceKeys(userId: string): string[] {
     activeSubjectKey(userId),
     caregiversStorageKey(userId),
     profileLogStorageKey(userId),
+    consultationsStorageKey(userId),
+    medicationPlansStorageKey(userId),
+    adherenceStorageKey(userId),
+    patientHealthContextKey(userId),
     offlineQueueKey(userId),
   ];
 }
@@ -400,6 +407,20 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}, allowRef
     return result.data;
   } catch {
     return null;
+  }
+}
+
+/**
+ * apiFetch with the HTTP status kept visible. Only ChatPanel needs it: a 429
+ * from the chat rate limiter must be SHOWN to the user, not silently turned
+ * into a degraded reply. Every other caller stays on apiFetch's silent null.
+ */
+export async function apiFetchDetailed<T>(path: string, opts: RequestInit = {}): Promise<{ ok: boolean; status: number; data: T | null }> {
+  try {
+    const { response, data } = await request<T>(path, opts);
+    return { ok: response.ok, status: response.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
   }
 }
 

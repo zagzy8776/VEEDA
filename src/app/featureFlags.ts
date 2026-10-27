@@ -22,7 +22,8 @@ export type FeatureFlag =
   | 'carePartnerBooking'   // Booking a real clinician — OFF until a partner is configured.
   | 'partnerPricesStock'   // Lab/pharmacy prices and stock — OFF until a partner source is configured.
   | 'modelInference'       // Any trained-model output (Phase 5 checks) — OFF until a validated model + thresholds exist.
-  | 'clinicianReviewQueue'; // Server review queue — OFF until roles/SLA are staffed.
+  | 'clinicianReviewQueue' // Server review queue — OFF until roles/SLA are staffed.
+  | 'visionInference';     // Vision model inference — OFF until a validated vision model + thresholds exist.
 
 export interface FlagContext {
   /** True in a production build/deployment. */

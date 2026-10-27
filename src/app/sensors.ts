@@ -1,4 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
+import { sensorHub } from './sensorHub';
+import { NormalizedSensorReading } from './sensorTypes';
 import { buildRppgCsv, isRppgResearchEnabled, type RgbSample } from './rppgResearchExport';
 
 // Phone-camera rPPG is an estimate. It is quality-gated and must not be represented
@@ -411,6 +413,24 @@ export function useHeartRate(onResult: (bpm: number, confidence: HRConfidence, q
       attemptsRef.current = 0;
       setAttempts(0);
       setState('done');
+      
+      // Push to Sensor Hub
+      const quality = result.signalQuality >= 0.58 ? 'GOOD' :
+                      result.signalQuality >= 0.38 ? 'WEAK' :
+                      'UNRELIABLE';
+
+      sensorHub.add({
+        capabilityId: 'heart_rate_camera',
+        measurementType: 'heart_rate',
+        value: result.bpm,
+        unit: 'bpm',
+        source: 'ESTIMATE',
+        timestamp: new Date().toISOString(),
+        freshness: 0,
+        quality,
+        description: `rPPG estimate (${result.confidence} confidence)`
+      });
+
       onResult(result.bpm, result.confidence, result);
     } else {
       const failures = attemptsRef.current + 1;
@@ -506,6 +526,20 @@ export function useBreathRate(onResult: (bpm: number) => void) {
     const bpm = calcBreathRate(samplesRef.current);
     if (bpm > 0) {
       setState('done');
+      
+      // Push to Sensor Hub
+      sensorHub.add({
+        capabilityId: 'breath_rate_mic',
+        measurementType: 'breath_rate',
+        value: bpm,
+        unit: 'brpm',
+        source: 'ESTIMATE',
+        timestamp: new Date().toISOString(),
+        freshness: 0,
+        quality: 'GOOD', // Simplified for now; real impl needs SNR check
+        description: `Mic-based breath rate estimate`
+      });
+
       onResult(bpm);
     } else {
       setState('error');
@@ -648,6 +682,20 @@ export function useStepCounter(onStep: (total: number) => void, initialTotal = 0
           pendingRef.current = 0;
           stepsRef.current += toAdd;
           lastCountedPeakRef.current = now;
+          
+          // Push to Sensor Hub
+          sensorHub.add({
+            capabilityId: 'step_counter',
+            measurementType: 'step_count',
+            value: stepsRef.current,
+            unit: 'steps',
+            source: 'PHONE_SENSOR',
+            timestamp: new Date().toISOString(),
+            freshness: 0,
+            quality: 'GOOD',
+            description: `Accelerometer-based step count`
+          });
+
           onStep(stepsRef.current);
         } else {
           // Not enough history yet — hold as pending, don't count alone

@@ -14,6 +14,7 @@ import clinician from './routes/clinician.js';
 import triage from './routes/triage.js';
 import consent from './routes/consent.js';
 import aiChat from './routes/ai-chat.js';
+import vision from './routes/vision.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
 import readings from './routes/readings.js';
@@ -21,6 +22,7 @@ import dependents from './routes/dependents.js';
 import alerts from './routes/alerts.js';
 import reviewQueue from './routes/review-queue.js';
 import adminDebug from './routes/admin-debug.js';
+import medicine from './routes/medicine.js';
 import { requireAuth } from './security.js';
 
 const app = express();
@@ -61,6 +63,10 @@ app.use(cors({
     return callback(null, false);
   },
 }));
+// Vision accepts base64 images up to 10 MB (roughly 13.4 MB encoded). Keep the
+// larger parser scoped to this authenticated router; all other APIs retain
+// Express's smaller default JSON limit.
+app.use('/api/vision', requireAuth, express.json({ limit: '15mb' }), vision);
 app.use(express.json());
 
 // Authentication endpoints are public so users can establish a session.
@@ -99,6 +105,7 @@ app.use('/api/integrations', integrations);
 app.use('/api/fhir', fhir);
 app.use('/api/ai-chat', aiChatLimiter);
 app.use('/api', aiChat);
+app.use('/api', medicine);
 app.use('/api/admin', adminDebug);
 
 export { app };

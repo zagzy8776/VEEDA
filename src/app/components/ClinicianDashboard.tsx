@@ -94,7 +94,7 @@ export function ClinicianDashboard({ history }: { history: BiometricEvent[] }) {
       if (!row.latest[event.type] || new Date(event.timestamp) > new Date(row.latest[event.type].timestamp)) row.latest[event.type] = event;
     });
     const rows = Array.from(patients.values()).map(row => {
-      const scores = Object.values(row.latest).map(scoreEvent).filter((v): v is number => v !== null);
+      const scores = Object.values(row.latest).map(scoreEvent).filter((v): v is 0 | 1 | 2 | 3 => v !== null);
       return { ...row, news2: scores.reduce((a, b) => a + b, 0), singleThree: scores.some(s => s === 3) };
     });
     return rows.sort((a, b) => prioritySort ? b.news2 - a.news2 : a.id.localeCompare(b.id));

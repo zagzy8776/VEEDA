@@ -3,7 +3,7 @@
 ## Running them
 
 ```bash
-npm run migrate     # applies the base schema, then 001..011 in order
+npm run migrate     # applies the base schema, then 001..012 in order
 ```
 
 `npm run migrate` is **self-sufficient**: it first creates the base tables the
@@ -43,6 +43,7 @@ the primary branch.
 | 009 | `009_dependents.sql` | Creates `dependents` (a family profile managed by one guardian: `guardian_user_id` FK to `users` delete cascade, `display_name`, optional `age`; **no** email/password/user link — a dependant is never a user) and adds `readings.dependent_id` as a nullable FK to `dependents` (NULL = the account owner). Adds guardian and dependent indexes. | **Yes.** `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, and `CREATE INDEX IF NOT EXISTS`; the FK is added inside a `pg_constraint`-guarded `DO` block. |
 | 010 | `010_review_queue.sql` | Creates the `review_queue` table for the clinician review queue: `subject_user_id` (FK to `users`, delete cascade), optional `dependent_id`, `kind`, `pack_id`/`pack_version` pins, `priority`, `status` (with a CHECK constraint), `assigned_user_id`, `sla_due_at`, reviewer sign-off (`reviewed_by`/`reviewed_at`/`review_note`), and timestamps. Adds status and subject indexes. Holds no clinical content. | **Yes.** `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. |
 | 011 | `011_dependents_birth_year.sql` | Replaces the frozen `dependents.age` with a stored `birth_year` (and optional `birth_month`) so the server computes a dependant's age **at request time** — a dependant then keeps crossing the adult cutoff as they grow up instead of being frozen at capture. Adds `age_confirmed` (default false) and `age_confirmed_at`; the age gate trusts a birth year only while confirmed and within the configured re-confirm interval. Backfills `birth_year` approximately from the old `age` + `created_at` and marks those rows unconfirmed, then drops `age`. | **Yes.** `ADD COLUMN IF NOT EXISTS`, a guarded backfill, and `DROP COLUMN IF EXISTS`. |
+| 012 | `012_readings_body_temperature.sql` | Widens the `readings.kind` CHECK (from 008) to also allow `'body_temperature'`, so a thermometer reading — Bluetooth or typed — can be synced. No new column: a temperature uses the existing `value`/`unit` pair (`'°C'`/`'°F'`) with `context` NULL. | **Yes.** `DROP CONSTRAINT IF EXISTS` then a `pg_constraint`-guarded `ADD CONSTRAINT`. |
 
 ## Notes
 

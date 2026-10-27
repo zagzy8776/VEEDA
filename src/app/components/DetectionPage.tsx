@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Activity, HeartPulse, ShieldAlert, UserRound, Waves } from 'lucide-react';
+import { Activity, HeartPulse, ShieldAlert, UserRound, Waves, Volume2 } from 'lucide-react';
 import { EARLY_WARNING_LABEL } from '../packText.ts';
 import { evaluateDetector, type DetectorConfig, type DetectorId, type Baseline } from '../detectors.ts';
 import { startLadder, advance, acknowledge, isSos, caregiverAlertDue, type LadderState } from '../escalation.ts';
+import { evaluateAudioDistress, type AudioWatchConfig } from '../audioDistress.ts';
+import { buildRegistry, lookupModel, type ModelRegistry } from '../modelRegistry.ts';
 
 // Automatic-detection surface (Phase 2).
 //
@@ -27,7 +29,17 @@ export interface DetectionPageProps {
   /** Per-detector configuration. Absent => disabled. Thresholds are operator-set. */
   configs: Partial<Record<DetectorId, DetectorConfig>>;
   baseline?: Baseline | null;
+  /** Audio-watch wiring. Defaults show the honest disabled/unavailable states. */
+  audio?: { micConsented?: boolean; config?: AudioWatchConfig; registry?: ModelRegistry };
   onClose?: () => void;
+}
+
+const EMPTY_AUDIO_REGISTRY = buildRegistry([]);
+
+function audioStateLabel(outcome: ReturnType<typeof evaluateAudioDistress>): { text: string; color: string } {
+  if (outcome.state === 'disabled') return { text: 'Not enabled', color: C.muted };
+  if (outcome.state === 'unavailable') return { text: 'Not yet validated', color: C.muted };
+  return { text: 'Ready (foreground only)', color: C.teal };
 }
 
 function stateLabel(outcome: ReturnType<typeof evaluateDetector>): { text: string; color: string } {
@@ -37,8 +49,14 @@ function stateLabel(outcome: ReturnType<typeof evaluateDetector>): { text: strin
   return { text: outcome.triggered ? 'Change noticed' : 'Within your range', color: outcome.triggered ? C.amber : C.teal };
 }
 
-export function DetectionPage({ configs, baseline = null, onClose }: DetectionPageProps) {
+export function DetectionPage({ configs, baseline = null, audio, onClose }: DetectionPageProps) {
   const [ladder, setLadder] = useState<LadderState>(() => startLadder());
+  const audioOutcome = evaluateAudioDistress({
+    micConsented: audio?.micConsented ?? false,
+    config: audio?.config,
+    model: lookupModel(audio?.registry ?? EMPTY_AUDIO_REGISTRY, 'audio_distress'),
+  });
+  const audioLabel = audioStateLabel(audioOutcome);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1500, background: '#0A1120', overflowY: 'auto', padding: 18, color: C.text }}>
@@ -68,6 +86,19 @@ export function DetectionPage({ configs, baseline = null, onClose }: DetectionPa
           </div>
         );
       })}
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <Volume2 size={18} color={C.teal} />
+          <div style={{ flex: 1 }}>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>Audio distress (scream / crash)</div>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
+              {audioOutcome.reason} Foreground only — the watch runs while VEEDA is open, never in the background.
+            </div>
+          </div>
+          <div style={{ color: audioLabel.color, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{audioLabel.text}</div>
+        </div>
+      </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginTop: 6 }}>
         <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>

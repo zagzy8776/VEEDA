@@ -63,6 +63,9 @@ export function readingKey(reading: Reading): string {
   if (reading.kind === 'blood_pressure') {
     return `bp:${reading.systolic}/${reading.diastolic}:${reading.recordedAt}:${reading.source}`;
   }
+  if (reading.kind === 'body_temperature') {
+    return `temp:${reading.value}:${reading.unit}:${reading.recordedAt}:${reading.source}`;
+  }
   return `glu:${reading.value}:${reading.unit}:${reading.context ?? ''}:${reading.recordedAt}:${reading.source}`;
 }
 

@@ -14,6 +14,12 @@ const GLUCOSE_RANGE = {
   'mmol/L': { min: 1, max: 40 },
 };
 
+// Same bounds as the client's TEMP_RANGE.
+const TEMP_RANGE = {
+  '°C': { min: 25, max: 45 },
+  '°F': { min: 77, max: 113 },
+};
+
 const SOURCES = new Set(['typed_in', 'device']);
 const CONTEXTS = new Set(['fasting', 'after_meal']);
 
@@ -51,6 +57,15 @@ export function validateReadingInput(input) {
     return { ok: true };
   }
 
+  if (input.kind === 'body_temperature') {
+    const range = TEMP_RANGE[input.unit];
+    if (!range) return { ok: false, message: 'invalid unit' };
+    if (!Number.isFinite(input.value) || input.value < range.min || input.value > range.max) {
+      return { ok: false, message: 'check this value' };
+    }
+    return { ok: true };
+  }
+
   return { ok: false, message: 'invalid kind' };
 }
 
@@ -66,6 +81,16 @@ export function toRow(input) {
       diastolic: input.diastolic,
       value: null,
       unit: 'mmHg',
+      context: null,
+    };
+  }
+  if (input.kind === 'body_temperature') {
+    return {
+      kind: 'body_temperature',
+      systolic: null,
+      diastolic: null,
+      value: input.value,
+      unit: input.unit,
       context: null,
     };
   }

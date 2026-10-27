@@ -9,14 +9,24 @@ import {
   glucoseTrend,
   loadReadings,
   parseReading,
+  temperatureTrend,
   type GlucoseUnit,
   type Reading,
+  type TemperatureUnit,
 } from '../bpGlucose';
+import {
+  BLUETOOTH_UNSUPPORTED_NOTE,
+  bluetoothSupport,
+  readFromDevice,
+  type BleDeviceKind,
+} from '../bleDevices';
 import { CONSENT_ITEMS, CONSENT_VERSION, hasConsent, recordConsent, type ConsentFeature } from '../consent';
 import { syncConsentRecord } from '../api';
 import { syncConsentedReadings } from '../api';
 import { deleteSyncedReadings } from '../api';
 import { downloadCsvFile } from '../download';
+
+type ReadingKind = BleDeviceKind;
 
 const C = { teal: '#2DD4A4', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.96)', border: 'rgba(255,255,255,0.1)', amber: '#EF9F27' };
 const CONSENT_FEATURE: ConsentFeature = 'bp_glucose_logging';
@@ -29,24 +39,30 @@ interface BpGlucosePageProps {
 }
 
 export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
-  const [kind, setKind] = useState<'blood_pressure' | 'blood_glucose'>('blood_pressure');
+  const [kind, setKind] = useState<ReadingKind>('blood_pressure');
   const [systolic, setSystolic] = useState('');
   const [diastolic, setDiastolic] = useState('');
   const [value, setValue] = useState('');
   const [unit, setUnit] = useState<GlucoseUnit>('mmol/L');
+  const [temperature, setTemperature] = useState('');
+  const [tempUnit, setTempUnit] = useState<TemperatureUnit>('°C');
   const [context, setContext] = useState<'fasting' | 'after_meal' | ''>('');
   const [source, setSource] = useState<'typed_in' | 'device'>('typed_in');
   const [error, setError] = useState('');
   const [consented, setConsented] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [syncNote, setSyncNote] = useState('');
+  const [deviceNote, setDeviceNote] = useState('');
 
   const consentItem = CONSENT_ITEMS.find(item => item.feature === CONSENT_FEATURE);
   const consentedNow = consented || hasConsent(window.localStorage, userId, CONSENT_FEATURE);
+  const canUseBluetooth = bluetoothSupport(window.navigator);
   const readings = useMemo<Reading[]>(() => loadReadings(window.localStorage, userId), [userId, refresh]);
   const bp = useMemo(() => bpTrend(readings), [readings]);
   const glucoseMgdl = useMemo(() => glucoseTrend(readings, 'mg/dL'), [readings]);
   const glucoseMmol = useMemo(() => glucoseTrend(readings, 'mmol/L'), [readings]);
+  const tempC = useMemo(() => temperatureTrend(readings, '°C'), [readings]);
+  const tempF = useMemo(() => temperatureTrend(readings, '°F'), [readings]);
 
   if (!open) return null;
 
@@ -56,23 +72,66 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
     setConsented(true);
   }
 
+  /** Store a parsed reading on the device and best-effort sync it. */
+  function store(reading: Reading) {
+    const stored = addReading(window.localStorage, userId, reading);
+    if (stored.ok === false) { setError(stored.message ?? ''); return; }
+    // Best-effort durable copy: only when signed in and consented. A failure
+    // keeps the reading on the device and in the retry queue.
+    void syncConsentedReadings(userId, consentedNow);
+    setRefresh(n => n + 1);
+  }
+
   function save() {
     setError('');
     const recordedAt = new Date().toISOString();
     const outcome = kind === 'blood_pressure'
       ? parseReading({ kind, systolic: Number(systolic), diastolic: Number(diastolic), source, recordedAt })
-      : parseReading({ kind, value: Number(value), unit, context: context || undefined, source, recordedAt });
+      : kind === 'body_temperature'
+        ? parseReading({ kind, value: Number(temperature), unit: tempUnit, source, recordedAt })
+        : parseReading({ kind, value: Number(value), unit, context: context || undefined, source, recordedAt });
     if (outcome.ok === false || !outcome.reading) {
       setError(outcome.message ?? CHECK_VALUE_MESSAGE);
       return;
     }
-    const stored = addReading(window.localStorage, userId, outcome.reading);
-    if (stored.ok === false) { setError(stored.message ?? ''); return; }
-    // Best-effort durable copy: only when signed in and consented. A failure
-    // keeps the reading on the device and in the retry queue.
-    void syncConsentedReadings(userId, consentedNow);
-    setSystolic(''); setDiastolic(''); setValue('');
-    setRefresh(n => n + 1);
+    store(outcome.reading);
+    setSystolic(''); setDiastolic(''); setValue(''); setTemperature('');
+  }
+
+  /**
+   * Read a measurement from a Bluetooth monitor and ingest it directly. A device
+   * reading is validated and stored exactly like a typed one — nothing is
+   * trusted just because it came over Bluetooth. If this browser has no
+   * Bluetooth, or the user cancels, we say so and typed entry remains.
+   */
+  async function connectDevice() {
+    setError('');
+    setDeviceNote('');
+    const now = () => new Date().toISOString();
+    function ingest(result: ReturnType<typeof parseReading>, label: string) {
+      if (result.ok === false || !result.reading) { setError(result.message ?? CHECK_VALUE_MESSAGE); return; }
+      store(result.reading);
+      setDeviceNote(label);
+    }
+    try {
+      await readFromDevice(window.navigator, kind, {
+        onBloodPressure: d => ingest(
+          parseReading({ kind: 'blood_pressure', systolic: d.systolic, diastolic: d.diastolic, source: 'device', recordedAt: now() }),
+          `Ingested ${d.systolic}/${d.diastolic} ${d.unit} from the monitor.`,
+        ),
+        onTemperature: d => ingest(
+          parseReading({ kind: 'body_temperature', value: d.value, unit: d.unit, source: 'device', recordedAt: now() }),
+          `Ingested ${d.value} ${d.unit} from the thermometer.`,
+        ),
+        onGlucose: d => ingest(
+          parseReading({ kind: 'blood_glucose', value: d.value, unit: d.unit, source: 'device', recordedAt: now() }),
+          `Ingested ${d.value} ${d.unit} from the meter (the device sent ${d.deviceUnit}).`,
+        ),
+      });
+      setDeviceNote(n => n || 'Connected. Waiting for the device to send a reading…');
+    } catch (e) {
+      setDeviceNote(e instanceof Error ? e.message : 'The device could not be read.');
+    }
   }
 
   function exportCsv() {
@@ -105,10 +164,10 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
         ) : (
           <>
             <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-              {(['blood_pressure', 'blood_glucose'] as const).map(k => (
+              {([['blood_pressure', 'Blood pressure'], ['blood_glucose', 'Glucose'], ['body_temperature', 'Temperature']] as const).map(([k, label]) => (
                 <button key={k} onClick={() => setKind(k)}
-                  style={{ flex: 1, padding: '8px 6px', borderRadius: 10, border: 'none', background: kind === k ? C.teal : 'rgba(255,255,255,0.07)', color: kind === k ? '#04342C' : C.muted, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                  {k === 'blood_pressure' ? 'Blood pressure' : 'Glucose'}
+                  style={{ flex: 1, padding: '8px 4px', borderRadius: 10, border: 'none', background: kind === k ? C.teal : 'rgba(255,255,255,0.07)', color: kind === k ? '#04342C' : C.muted, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
+                  {label}
                 </button>
               ))}
             </div>
@@ -117,6 +176,18 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
               <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                 <input value={systolic} onChange={e => setSystolic(e.target.value)} inputMode="numeric" placeholder="Systolic" style={inp} />
                 <input value={diastolic} onChange={e => setDiastolic(e.target.value)} inputMode="numeric" placeholder="Diastolic" style={inp} />
+              </div>
+            ) : kind === 'body_temperature' ? (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <input value={temperature} onChange={e => setTemperature(e.target.value)} inputMode="decimal" placeholder="Temperature" style={inp} />
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['°C', '°F'] as const).map(u => (
+                    <button key={u} onClick={() => setTempUnit(u)}
+                      style={{ padding: '8px 10px', borderRadius: 10, border: 'none', background: tempUnit === u ? C.teal : 'rgba(255,255,255,0.07)', color: tempUnit === u ? '#04342C' : C.muted, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {u}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
               <>
@@ -151,6 +222,16 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
               ))}
             </div>
 
+            {canUseBluetooth ? (
+              <button onClick={() => void connectDevice()}
+                style={{ width: '100%', padding: 11, borderRadius: 12, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, cursor: 'pointer', marginBottom: 8 }}>
+                Connect a Bluetooth {kind === 'blood_pressure' ? 'monitor' : kind === 'body_temperature' ? 'thermometer' : 'meter'}
+              </button>
+            ) : (
+              <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, marginBottom: 8 }}>{BLUETOOTH_UNSUPPORTED_NOTE}</div>
+            )}
+            {deviceNote && <div style={{ fontSize: 11, color: C.teal, marginBottom: 10 }}>{deviceNote}</div>}
+
             {error && <div style={{ color: C.amber, fontSize: 11, marginBottom: 10 }}>{error}</div>}
 
             <button onClick={save} style={{ width: '100%', padding: 12, borderRadius: 12, border: 0, background: C.teal, color: '#04342C', fontWeight: 800, cursor: 'pointer', marginBottom: 16 }}>
@@ -164,6 +245,8 @@ export function BpGlucosePage({ open, onClose, userId }: BpGlucosePageProps) {
               {bp.count > 0 && <div>Blood pressure: average {bp.averageSystolic}/{bp.averageDiastolic} mmHg over {bp.count} readings</div>}
               {glucoseMgdl.count > 0 && <div>Glucose: average {glucoseMgdl.average} mg/dL over {glucoseMgdl.count} readings</div>}
               {glucoseMmol.count > 0 && <div>Glucose: average {glucoseMmol.average} mmol/L over {glucoseMmol.count} readings</div>}
+              {tempC.count > 0 && <div>Temperature: average {tempC.average} °C over {tempC.count} readings</div>}
+              {tempF.count > 0 && <div>Temperature: average {tempF.average} °F over {tempF.count} readings</div>}
               {readings.length === 0 && <span style={{ color: C.muted }}>No readings saved yet.</span>}
             </div>
 

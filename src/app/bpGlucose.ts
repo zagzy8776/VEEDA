@@ -6,8 +6,14 @@
 // that would be a clinical judgement we are not making here. Each reading also
 // records whether it was typed in or came from a device, plus a timestamp, so
 // exports are trustworthy. Pure functions keep this testable without a browser.
+//
+// Sensor Hub bridge: readings saved here are also surfaced to the VEEDA Sensor
+// Hub (sensorHub.ts) so the reasoning/chat layer can see them. The hub is a
+// runtime singleton, so this import is deferred to the bridge function to keep
+// this module pure and testable without a browser.
 
 export type GlucoseUnit = 'mg/dL' | 'mmol/L';
+export type TemperatureUnit = '°C' | '°F';
 export type ReadingSource = 'typed_in' | 'device';
 
 export interface BloodPressureReading {
@@ -28,7 +34,15 @@ export interface GlucoseReading {
   recordedAt: string;
 }
 
-export type Reading = BloodPressureReading | GlucoseReading;
+export interface TemperatureReading {
+  kind: 'body_temperature';
+  value: number;
+  unit: TemperatureUnit;
+  source: ReadingSource;
+  recordedAt: string;
+}
+
+export type Reading = BloodPressureReading | GlucoseReading | TemperatureReading;
 
 export interface ValidationResult {
   ok: boolean;
@@ -49,6 +63,12 @@ const GLUCOSE_RANGE: Record<GlucoseUnit, { min: number; max: number }> = {
   'mmol/L': { min: 1, max: 40 },
 };
 
+// Body-temperature plausibility bounds only.
+const TEMP_RANGE: Record<TemperatureUnit, { min: number; max: number }> = {
+  '°C': { min: 25, max: 45 },
+  '°F': { min: 77, max: 113 },
+};
+
 export function validateReading(reading: Reading): ValidationResult {
   if (reading.kind === 'blood_pressure') {
     const { systolic, diastolic } = reading;
@@ -60,6 +80,15 @@ export function validateReading(reading: Reading): ValidationResult {
       return { ok: false, message: CHECK_VALUE_MESSAGE };
     }
     if (systolic > 400 || diastolic > 300) {
+      return { ok: false, message: CHECK_VALUE_MESSAGE };
+    }
+    return { ok: true };
+  }
+
+  if (reading.kind === 'body_temperature') {
+    const range = TEMP_RANGE[reading.unit];
+    if (!range) return { ok: false, message: CHECK_VALUE_MESSAGE };
+    if (!Number.isFinite(reading.value) || reading.value < range.min || reading.value > range.max) {
       return { ok: false, message: CHECK_VALUE_MESSAGE };
     }
     return { ok: true };
@@ -87,11 +116,11 @@ export interface ValidationOutcome {
  * never inferred from the number, so "12.0" is never quietly treated as mmol/L.
  */
 export function parseReading(input: {
-  kind: 'blood_pressure' | 'blood_glucose';
+  kind: 'blood_pressure' | 'blood_glucose' | 'body_temperature';
   systolic?: number;
   diastolic?: number;
   value?: number;
-  unit?: GlucoseUnit;
+  unit?: GlucoseUnit | TemperatureUnit;
   context?: 'fasting' | 'after_meal';
   source?: ReadingSource;
   recordedAt: string;
@@ -103,6 +132,17 @@ export function parseReading(input: {
       kind: 'blood_pressure',
       systolic: Number(input.systolic),
       diastolic: Number(input.diastolic),
+      source,
+      recordedAt: input.recordedAt,
+    };
+  } else if (input.kind === 'body_temperature') {
+    if (input.unit !== '°C' && input.unit !== '°F') {
+      return { ok: false, message: CHECK_VALUE_MESSAGE };
+    }
+    reading = {
+      kind: 'body_temperature',
+      value: Number(input.value),
+      unit: input.unit,
       source,
       recordedAt: input.recordedAt,
     };
@@ -199,12 +239,33 @@ export function glucoseTrend(readings: Reading[], unit: GlucoseUnit): GlucoseTre
   return { count: glucose.length, average: Math.round(average * 10) / 10, unit, latest };
 }
 
+export interface TemperatureTrend {
+  count: number;
+  average: number | null;
+  unit: TemperatureUnit;
+  latest: TemperatureReading | null;
+}
+
+export function temperatureTrend(readings: Reading[], unit: TemperatureUnit): TemperatureTrend {
+  // Only average within a single unit; never mix °C and °F.
+  const temps = readings.filter(
+    (r): r is TemperatureReading => r.kind === 'body_temperature' && r.unit === unit,
+  );
+  if (temps.length === 0) return { count: 0, average: null, unit, latest: null };
+  const average = temps.reduce((sum, r) => sum + r.value, 0) / temps.length;
+  const latest = [...temps].sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt))[0];
+  return { count: temps.length, average: Math.round(average * 10) / 10, unit, latest };
+}
+
 const CSV_HEADER = 'kind,value,systolic,diastolic,unit,context,source,recorded_at';
 
 export function buildReadingsCsv(readings: Reading[]): string {
   const rows = readings.map((r) => {
     if (r.kind === 'blood_pressure') {
       return ['blood_pressure', '', r.systolic, r.diastolic, 'mmHg', '', r.source, r.recordedAt].join(',');
+    }
+    if (r.kind === 'body_temperature') {
+      return ['body_temperature', r.value, '', '', r.unit, '', r.source, r.recordedAt].join(',');
     }
     return ['blood_glucose', r.value, '', '', r.unit, r.context ?? '', r.source, r.recordedAt].join(',');
   });
@@ -237,3 +298,105 @@ export function downloadReadingsCsv(
   return readings.length;
 }
 
+/**
+ * Push a validated reading into the VEEDA Sensor Hub so the reasoning / chat
+ * layer can see it.
+ *
+ * The hub is injected rather than imported directly so this module stays pure
+ * and testable without a browser environment (no `require`/dynamic import).
+ * Callers that have no hub (e.g. unit tests) may pass `null` and the call is a
+ * safe no-op.
+ *
+ * - `source` is mapped honestly: 'device' → EXTERNAL_DEVICE, 'typed_in' → MANUAL.
+ * - Quality is GOOD for device readings (direct measurement) and WEAK for
+ *   typed-in values (human entry, possible transcription error — never claimed
+ *   to be a sensor measurement).
+ * - Never invents a reading; only called after a successful validation.
+ */
+export function pushReadingToHub(
+  reading: Reading,
+  hub: { add: (r: NormalizedHubReading) => void } | null,
+): void {
+  if (!hub) return;
+  const source = reading.source === 'device' ? 'EXTERNAL_DEVICE' : 'MANUAL';
+  const quality = reading.source === 'device' ? 'GOOD' : 'WEAK';
+
+  if (reading.kind === 'blood_pressure') {
+    hub.add({
+      capabilityId: 'ble_blood_pressure',
+      measurementType: 'blood_pressure',
+      value: JSON.stringify({ systolic: reading.systolic, diastolic: reading.diastolic }),
+      unit: 'mmHg',
+      source,
+      timestamp: reading.recordedAt,
+      freshness: 0,
+      quality,
+      description: reading.source === 'device' ? 'Bluetooth blood pressure device' : 'Manually entered blood pressure',
+    });
+  } else if (reading.kind === 'body_temperature') {
+    hub.add({
+      capabilityId: 'ble_body_temperature',
+      measurementType: 'body_temperature',
+      value: reading.value,
+      unit: reading.unit,
+      source,
+      timestamp: reading.recordedAt,
+      freshness: 0,
+      quality,
+      description: reading.source === 'device' ? 'Bluetooth thermometer' : 'Manually entered body temperature',
+    });
+  } else {
+    hub.add({
+      capabilityId: 'ble_blood_glucose',
+      measurementType: 'blood_glucose',
+      value: reading.value,
+      unit: reading.unit,
+      source,
+      timestamp: reading.recordedAt,
+      freshness: 0,
+      quality,
+      description: reading.source === 'device' ? 'Bluetooth glucose meter' : 'Manually entered blood glucose',
+    });
+  }
+}
+
+/**
+ * Minimal shape of the hub this module needs. Kept narrow so bpGlucose stays
+ * decoupled from the concrete SensorHub class.
+ */
+export interface NormalizedHubReading {
+  capabilityId: string;
+  measurementType: string;
+  value: number | string;
+  unit: string;
+  source: string;
+  timestamp: string;
+  freshness: number;
+  quality: string;
+  description?: string;
+}
+
+/**
+ * Append a reading to storage AND surface it to the Sensor Hub. Convenience
+ * wrapper around addReading so callers do not need to remember both steps.
+ */
+export function addReadingAndHub(
+  storage: StorageLike,
+  userId: string,
+  reading: Reading,
+  hub: { add: (r: NormalizedHubReading) => void } | null,
+): ValidationResult {
+  const result = addReading(storage, userId, reading);
+  if (result.ok) {
+    pushReadingToHub(reading, hub);
+  }
+  return result;
+}
+
+/**
+ * Re-surface already-stored readings into the hub. Useful on app load so the
+ * reasoning layer has context without requiring a fresh measurement.
+ */
+export function syncStoredReadingsToHub(readings: Reading[], hub: { add: (r: NormalizedHubReading) => void } | null): void {
+  for (const r of readings) pushReadingToHub(r, hub);
+}
