@@ -61,10 +61,12 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
   ];
 
   const envItems = [
-    { icon: Thermometer, color: C.amber, value: env.temp, label: 'Outside' },
+    { icon: Thermometer, color: C.amber, value: env.outsideTemp == null ? 'Unavailable' : `${env.outsideTemp}°C`, label: 'Outside temperature' },
     { icon: Wind, color: C.blue, value: env.air, label: 'Air' },
     { icon: CloudSun, color: C.teal, value: env.weather, label: 'Weather' },
-    { icon: MapPin, color: C.red, value: env.gps, label: 'GPS' },
+    { icon: MapPin, color: C.red, value: env.gps, label: 'GPS accuracy' },
+    { icon: Thermometer, color: C.amber, value: env.feelsLike == null ? 'Unavailable' : `${env.feelsLike}°C`, label: 'Feels like' },
+    { icon: Droplets, color: C.blue, value: env.humidity == null ? 'Unavailable' : `${env.humidity}%`, label: 'Outdoor humidity' },
   ];
 
   // Notices from real analysis / environment
@@ -142,17 +144,18 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
 
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>Environment</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
             {envItems.map(({ icon: Icon, color, value, label }) => (
-              <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+              <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, minWidth: 0, padding: '14px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 11, background: `${color}14`, display: 'grid', placeItems: 'center', color }}>
                   <Icon size={15} strokeWidth={2} />
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center', fontFamily: "'Geist Mono',monospace" }}>{value}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, overflowWrap: 'anywhere', fontWeight: 600, color: C.text, textAlign: 'center' }}>{value}</div>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.muted }}>{label}</div>
               </div>
             ))}
           </div>
+          <p style={{ fontSize: 11, lineHeight: 1.5, color: C.muted, margin: '10px 0 0' }}>Outdoor conditions come from weather services using your location; they are not body or indoor measurements. {env.retrievedAt ? `Last retrieved ${new Date(env.retrievedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : 'Waiting for location and weather data.'}</p>
         </div>
 
         <div style={{ marginBottom: 20 }}>

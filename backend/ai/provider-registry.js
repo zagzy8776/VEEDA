@@ -42,7 +42,7 @@ function explicitSelfHostedCapabilities(env) {
 }
 
 function knownCapabilities(provider, model) {
-  return capabilities(MODEL_CAPABILITIES.get(`${provider}:${String(model || '').toLowerCase()}`) || []);
+  return capabilities(MODEL_CAPABILITIES.get(`${provider}:${String(model || '').toLowerCase()}`) || (model ? ['text'] : []));
 }
 
 function entry({ name, key, adapter, baseUrl, textModel, visionModel, priority, timeoutMs, rpm, env, headers = {} }) {

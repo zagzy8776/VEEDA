@@ -16,6 +16,9 @@ delete process.env.CEREBRAS_API_KEY;
 delete process.env.GROQ_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPENROUTER_API_KEY;
+delete process.env.GEMINI_API_KEY;
+delete process.env.SELF_HOSTED_API_KEY;
+delete process.env.SELF_HOSTED_ALLOW_NO_AUTH;
 
 const { app } = await import('../server.js');
 const { sanitizeHistory, buildChatMessages, providerChain } = await import('../routes/ai-chat.js');
@@ -142,7 +145,38 @@ test('when every provider is down the chat still answers with the local dialogue
   });
   assert.equal(result.status, 200);
   assert.equal(result.body.source, 'local');
+  assert.equal(result.body.aiState, 'NOT_CONFIGURED');
   assert.equal(result.body.conversationReply, guidance);
   // The reply stays a conversation: it acknowledges the user and asks back.
   assert.match(result.body.conversationReply, /\?$/);
+});
+
+
+test('chat provider receives outdoor context and returns a direct statement', async () => {
+  const originalFetch = globalThis.fetch;
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
+  let prompt = '';
+  globalThis.fetch = async (url, options) => {
+    if (String(url).startsWith('https://generativelanguage.googleapis.com/')) {
+      const request = JSON.parse(options.body);
+      prompt = request.contents.at(-1).parts[0].text;
+      assert.match(request.system_instruction.parts[0].text, /Do not abandon a user/);
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'Your outdoor temperature reading is 23 degrees Celsius.' }] } }] }) };
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    const result = await postChat(baseUrl, token('outdoor-context-chat'), {
+      message: 'What is the temperature outside?',
+      environment: { outsideTemp: 23, humidity: 80, retrievedAt: new Date().toISOString() },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.source, 'ai');
+    assert.match(prompt, /"outsideTemp":23/);
+    assert.match(prompt, /not body temperature/);
+    assert.equal(result.body.conversationReply, 'Your outdoor temperature reading is 23 degrees Celsius.');
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
+  }
 });

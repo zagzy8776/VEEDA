@@ -109,3 +109,21 @@ test('a configured request limit removes a provider until its minute resets', as
   assert.equal(capabilityStatus('image', env, 1002).state, 'PROVIDER_UNAVAILABLE');
   assert.equal(selectProviders('image', env, 61_001).length, 1);
 });
+
+
+test('custom configured text models reach providers without granting vision capabilities', async () => {
+  const env = { GROQ_API_KEY: 'secret', GROQ_MODEL: 'custom-text-model' };
+  let called = false;
+  const result = await callWithFailover('text', [{ role: 'user', content: 'Hello' }], {
+    env,
+    fetchImpl: async (_url, request) => {
+      called = true;
+      assert.equal(JSON.parse(request.body).model, 'custom-text-model');
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'Hello. I can help.' } }] }) };
+    },
+  });
+  assert.equal(called, true);
+  assert.equal(result.reply, 'Hello. I can help.');
+  assert.equal(selectProviders('image', env).length, 0);
+  assert.equal(selectProviders('toolCalling', env).length, 0);
+});
