@@ -34,6 +34,7 @@ Reply rules:
 - Never repeat a question already in the history.
 - Maximum ONE new question per turn. Prefer zero questions when you can already help.
 - Guests: ask "are you signed in?" at most once in the whole chat, never on every turn, never after "thank you".
+- Signed-in users: NEVER ask if they are signed in. Use their profile.
 - Use vitals / NEWS2 / qSOFA when present.
 - You may prescribe/recommend meds with dose, review meds, food/drink advice, request a photo/scan, and send them to Map for nearest hospital.
 - Never invent measurements. Never claim you already called a hospital.
@@ -45,9 +46,7 @@ function buildClinicalContext({ vitals, analysis, context, subject, profileBlock
   const news2 = adultScoresAllowed ? analysis?.clinicalScores?.news2 : null;
   const qsofa = adultScoresAllowed ? analysis?.clinicalScores?.qsofa : null;
   const parts = [];
-
   if (profileBlock) parts.push(profileBlock, '');
-
   parts.push('CURRENT VITALS:');
   if (vitals.heartRate != null) parts.push(`- Heart Rate: ${vitals.heartRate} bpm`);
   if (vitals.respiratory != null) parts.push(`- Respiratory Rate: ${vitals.respiratory} /min`);
@@ -57,7 +56,6 @@ function buildClinicalContext({ vitals, analysis, context, subject, profileBlock
   if (vitals.hydration != null) parts.push(`- Hydration estimate: ${vitals.hydration}%`);
   parts.push(`- Consciousness: ${vitals.consciousness || 'alert'}`);
   parts.push(`- Supplemental Oxygen: ${vitals.supplementalOxygen ? 'Yes' : 'No'}`);
-
   if (!adultScoresAllowed) parts.push('', 'SUBJECT NOTE: child or unknown age — NEWS2, qSOFA, and adult BP interpretation are not validated for this profile.');
   if (news2) {
     parts.push('', 'NEWS2 SCORE:', `- Total: ${news2.total}`, `- Urgency: ${news2.urgency?.level || 'Unknown'}`, `- Action: ${news2.urgency?.action || 'Use local protocol'}`);
@@ -66,7 +64,6 @@ function buildClinicalContext({ vitals, analysis, context, subject, profileBlock
   }
   if (qsofa) parts.push('', 'qSOFA SCORE:', `- Total: ${qsofa.total}`, `- Sepsis risk trigger: ${qsofa.sepsisRiskFlag ? 'YES' : 'No'}`);
   if (adultScoresAllowed && analysis?.riskLevel) parts.push('', `Overall Risk Level: ${analysis.riskLevel}`);
-
   const latestWindow = context?.summaries?.[0];
   if (latestWindow) {
     parts.push('', '24-HOUR BIOMETRIC SUMMARY:');
@@ -85,20 +82,14 @@ async function loadPatientProfileBlock(userId) {
   if (!userId || userId === 'guest') return '';
   try {
     const { rows: userRows } = await sql.query(
-      `SELECT id, email, display_name, date_of_birth, sex, conditions, allergies
-       FROM users WHERE id = $1 LIMIT 1`,
+      `SELECT id, email, display_name, date_of_birth, sex, conditions, allergies FROM users WHERE id = $1 LIMIT 1`,
       [userId],
     ).catch(() => ({ rows: [] }));
-
     let profile = userRows[0] || null;
     if (!profile) {
-      const { rows } = await sql.query(
-        `SELECT * FROM users WHERE id = $1 LIMIT 1`,
-        [userId],
-      ).catch(() => ({ rows: [] }));
+      const { rows } = await sql.query(`SELECT * FROM users WHERE id = $1 LIMIT 1`, [userId]).catch(() => ({ rows: [] }));
       profile = rows[0] || null;
     }
-
     const parts = ['PATIENT PROFILE:'];
     if (profile?.display_name || profile?.name) parts.push(`- Name: ${profile.display_name || profile.name}`);
     if (profile?.email) parts.push(`- Email: ${profile.email}`);
@@ -116,14 +107,9 @@ async function loadPatientProfileBlock(userId) {
       const a = Array.isArray(profile.allergies) ? profile.allergies.join(', ') : String(profile.allergies);
       if (a.trim()) parts.push(`- Allergies: ${a}`);
     }
-
     try {
       const { rows: meds } = await sql.query(
-        `SELECT drug_name, dose, frequency, notes
-         FROM medication_plans
-         WHERE owner_user_id = $1 AND (active IS NULL OR active = true)
-         ORDER BY updated_at DESC NULLS LAST
-         LIMIT 20`,
+        `SELECT drug_name, dose, frequency, notes FROM medication_plans WHERE owner_user_id = $1 AND (active IS NULL OR active = true) ORDER BY updated_at DESC NULLS LAST LIMIT 20`,
         [userId],
       );
       if (meds?.length) {
@@ -132,8 +118,7 @@ async function loadPatientProfileBlock(userId) {
           parts.push(`- ${m.drug_name}${m.dose ? ` ${m.dose}` : ''}${m.frequency ? ` — ${m.frequency}` : ''}${m.notes ? ` (${m.notes})` : ''}`);
         }
       }
-    } catch { /* table may not exist */ }
-
+    } catch {}
     return parts.length > 1 ? parts.join('\n') : '';
   } catch (err) {
     console.error('loadPatientProfileBlock failed:', err.message);
@@ -167,11 +152,7 @@ export function sanitizeHistory(history) {
 }
 
 export function buildChatMessages({ systemPrompt, history, userPrompt }) {
-  return [
-    { role: 'system', content: systemPrompt },
-    ...sanitizeHistory(history),
-    { role: 'user', content: userPrompt },
-  ];
+  return [{ role: 'system', content: systemPrompt }, ...sanitizeHistory(history), { role: 'user', content: userPrompt }];
 }
 
 router.post('/', async (req, res) => {
@@ -187,12 +168,7 @@ router.post('/', async (req, res) => {
 
   if (!isGuest) {
     try {
-      context = await getBiometricContext({
-        tenantId,
-        patientId,
-        userId: req.user.id,
-        hours: 24,
-      });
+      context = await getBiometricContext({ tenantId, patientId, userId: req.user.id, hours: 24 });
     } catch (err) {
       console.error('Failed to fetch biometric context:', err.message);
     }
@@ -202,8 +178,8 @@ router.post('/', async (req, res) => {
   const clinicalBlock = buildClinicalContext({ vitals, analysis, context, subject, profileBlock });
   const dialoguePlan = usefulLocalGuidance(localGuidance);
   const guestNote = isGuest
-    ? '\n\nSESSION: guest. Treat / advise first when you can. Ask sign-in at most once total — never after thank-you. Max one clinical question per turn.'
-    : '';
+    ? '\n\nSESSION: guest (not signed in). Treat first. Ask about sign-in at most once in the whole chat — never after thank-you. Max one clinical question per turn.'
+    : '\n\nSESSION: signed-in patient. You already know they are logged in. NEVER ask "are you signed in?". Use their profile and meds from clinical data above.';
   const userPrompt = `Clinical data:\n${clinicalBlock}${guestNote}\n\nPatient says: ${message}${dialoguePlan ? `\n\nSafety context only (do not quote):\n${dialoguePlan}` : ''}`;
   const providerMessages = buildChatMessages({ systemPrompt: SYSTEM_PROMPT, history, userPrompt });
 
