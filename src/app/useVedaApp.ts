@@ -120,13 +120,11 @@ const EMPTY_SOURCES: VitalSources = {
   systolicBp: 'manual entry',
 };
 
-/** Restore last phone measurements so refresh does not wipe them. */
 function loadCachedVitals(): { vitals: Vitals; sources: VitalSources } {
   try {
     const raw = localStorage.getItem('veda_latest_vitals');
     if (!raw) return { vitals: { ...EMPTY_VITALS }, sources: { ...EMPTY_SOURCES } };
     const parsed = JSON.parse(raw);
-    // Expire after 24h so stale readings do not stick forever
     if (parsed.savedAt && Date.now() - parsed.savedAt > 24 * 60 * 60 * 1000) {
       return { vitals: { ...EMPTY_VITALS }, sources: { ...EMPTY_SOURCES } };
     }
@@ -173,6 +171,8 @@ export function useVedaApp() {
 
   const telemetryRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const locationWatchRef = useRef<number | null>(null);
+  const weatherPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastWeatherFetchRef = useRef(0);
 
   const { start: startSteps, status: stepStatus } = useStepCounter(useCallback((total: number) => {
     setStepsState(total);
@@ -188,33 +188,8 @@ export function useVedaApp() {
     }).catch(() => setBackendStatus('failed'));
   }, []);
 
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setEnv(e => ({ ...e, gps: 'Unavailable' }));
-      return;
-    }
-
-    const success = (pos: GeolocationPosition) => {
-      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) };
-      setLocation(loc);
-      setEnv(e => ({ ...e, gps: `Active${loc.accuracy ? ` ±${loc.accuracy}m` : ''}` }));
-      fetchWeatherCoords(loc.lat, loc.lng);
-    };
-    const fail = () => {
-      setLocation({ lat: null, lng: null, accuracy: null });
-      setEnv(e => ({ ...e, gps: 'Location permission required' }));
-    };
-
-    navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
-    locationWatchRef.current = navigator.geolocation.watchPosition(success, fail, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
-
-    return () => {
-      if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
-    };
-  }, []);
-
   async function fetchWeatherCoords(lat: number, lng: number) {
-    // Prefer backend (keyed). If it fails or temp is missing, fall back to Open-Meteo from the phone.
+    lastWeatherFetchRef.current = Date.now();
     let w: any = null;
     let aq: any = null;
 
@@ -236,7 +211,6 @@ export function useVedaApp() {
     let wind = Number(w?.windSpeed || 0);
     let weatherLabel = (w?.description || '').trim();
 
-    // Phone-side fallback so environment still works if API key/backend is misconfigured
     if (temp == null || w?.status === 'unavailable' || !d) {
       try {
         const r = await fetch(
@@ -265,7 +239,6 @@ export function useVedaApp() {
       } catch {}
     }
 
-    // Air quality fallback
     if (!aq || aq.status !== 'available') {
       try {
         const r = await fetch(
@@ -317,9 +290,51 @@ export function useVedaApp() {
     }));
   }
 
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setEnv(e => ({ ...e, gps: 'Unavailable' }));
+      return;
+    }
+
+    const success = (pos: GeolocationPosition) => {
+      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) };
+      setLocation(loc);
+      setEnv(e => ({ ...e, gps: `Active${loc.accuracy ? ` ±${loc.accuracy}m` : ''}` }));
+      // Throttle weather fetch on rapid GPS ticks (max once per 20s from watch)
+      if (Date.now() - lastWeatherFetchRef.current > 20_000) {
+        void fetchWeatherCoords(loc.lat, loc.lng);
+      }
+    };
+    const fail = () => {
+      setLocation({ lat: null, lng: null, accuracy: null });
+      setEnv(e => ({ ...e, gps: 'Location permission required' }));
+    };
+
+    navigator.geolocation.getCurrentPosition(success, fail, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    locationWatchRef.current = navigator.geolocation.watchPosition(success, fail, { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 });
+
+    return () => {
+      if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    };
+  }, []);
+
+  // Keep Environment cards live: re-fetch weather + AQI every 2 minutes while we have a fix
+  useEffect(() => {
+    if (location.lat == null || location.lng == null) return;
+    // Immediate refresh when coords become available / change meaningfully
+    void fetchWeatherCoords(location.lat, location.lng);
+    weatherPollRef.current = setInterval(() => {
+      if (location.lat != null && location.lng != null) {
+        void fetchWeatherCoords(location.lat, location.lng);
+      }
+    }, 120_000);
+    return () => {
+      if (weatherPollRef.current) clearInterval(weatherPollRef.current);
+    };
+  }, [location.lat, location.lng]);
+
   const sendTelemetry = useCallback(async () => {
     if (backendStatus !== 'online') return;
-    // Only analyze when at least one real vital exists — avoids fake "Stable / 70"
     const hasAnyVital =
       vitals.heartRate != null ||
       vitals.respiratory != null ||
@@ -361,7 +376,6 @@ export function useVedaApp() {
     if (!d || !Array.isArray(d)) return;
     setHistory(d);
 
-    // Fill empty on-screen vitals from the latest server readings (today preferred)
     const today = new Date().toDateString();
     const latestOf = (type: string) => {
       const todayHit = d.find(e => e.type === type && new Date(e.timestamp).toDateString() === today);
@@ -397,7 +411,6 @@ export function useVedaApp() {
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   const saveBiometric = useCallback(async (type: string, value: number, unit: string, metadata: Record<string, unknown> = {}) => {
-    // Local UI already updated via setVital — backend save is best-effort
     const pendingId = markPendingHealthReading(type);
     const saved = await apiFetch('/api/biometric-event', {
       method: 'POST',
@@ -441,14 +454,12 @@ export function useVedaApp() {
     });
   }, [profile?.waterTarget, setVital, saveBiometric]);
 
-  // Wellness score: only computed when we have at least one core vital.
-  // Base is neutral (55) so incomplete data does not look "healthy by default".
   const wellnessScore = (() => {
     const coreKeys: (keyof Vitals)[] = ['heartRate', 'respiratory', 'oxygen', 'skinTemp'];
     const hasCore = coreKeys.some(k => vitals[k] !== null && vitals[k] !== undefined);
-    if (!hasCore) return null; // show "—" until real measurements exist
+    if (!hasCore) return null;
 
-    let score = 55; // neutral baseline (not 70)
+    let score = 55;
     let contributors = 0;
 
     if (vitals.heartRate !== null) {
@@ -476,7 +487,6 @@ export function useVedaApp() {
       else if (vitals.hydration > 70) score += 6;
     }
 
-    // Slight penalty when only one vital is available (incomplete picture)
     if (contributors < 2) score = Math.min(score, 62);
 
     return Math.max(0, Math.min(100, Math.round(score)));
