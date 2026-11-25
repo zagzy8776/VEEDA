@@ -223,15 +223,13 @@ async function fetchNearbyOverpass(lat, lng, radiusMeters) {
   throw lastError || new Error('All Overpass endpoints failed');
 }
 
-/** Nominatim fallback — slower, but works when Overpass is blocked from the host. */
+/** Nominatim — parallel amenity queries (sequential was timing out on Vercel). */
 async function fetchNearbyNominatim(lat, lng, radiusMeters) {
   const queries = [
     { q: 'hospital', type: 'hospital' },
-    { q: 'medical centre', type: 'clinic' },
     { q: 'clinic', type: 'clinic' },
     { q: 'pharmacy', type: 'pharmacy' },
-    { q: 'chemist', type: 'pharmacy' },
-    { q: 'police station', type: 'police' },
+    { q: 'police', type: 'police' },
     { q: 'atm', type: 'atm' },
     { q: 'bank', type: 'bank' },
     { q: 'petrol station', type: 'fuel' },
@@ -239,65 +237,76 @@ async function fetchNearbyNominatim(lat, lng, radiusMeters) {
     { q: 'restaurant', type: 'restaurant' },
     { q: 'hotel', type: 'hotel' },
     { q: 'school', type: 'school' },
-    { q: 'church', type: 'place_of_worship' },
   ];
 
-  // viewbox: left, top, right, bottom (lng/lat)
   const latDelta = radiusMeters / 111320;
   const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 0.15);
   const lngDelta = radiusMeters / (111320 * cosLat);
-  const left = lng - lngDelta;
-  const right = lng + lngDelta;
-  const top = lat + latDelta;
-  const bottom = lat - latDelta;
-  const viewbox = `${left},${top},${right},${bottom}`;
+  const viewbox = `${lng - lngDelta},${lat + latDelta},${lng + lngDelta},${lat - latDelta}`;
 
   const seen = new Set();
   const places = [];
 
-  // Sequential with a short pause to respect Nominatim usage policy
-  for (const item of queries) {
-    try {
-      const url =
-        `https://nominatim.openstreetmap.org/search?format=json&limit=12` +
-        `&q=${encodeURIComponent(item.q)}` +
-        `&viewbox=${encodeURIComponent(viewbox)}&bounded=1` +
-        `&addressdetails=0`;
-      const r = await fetchWithTimeout(url, {
-        headers: { 'User-Agent': 'VEEDA-Map/1.0 (wellness map; contact: support@veeda.app)', Accept: 'application/json' },
-      }, 10000);
-      if (!r.ok) continue;
-      const rows = await r.json();
-      for (const row of rows || []) {
-        const plat = Number(row.lat);
-        const plng = Number(row.lon);
-        if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
-        const name = (row.name || row.display_name || '').split(',')[0].trim();
-        if (!name) continue;
-        const id = `nominatim-${row.osm_type || 'n'}-${row.osm_id || row.place_id}`;
-        if (seen.has(id)) continue;
-        const distM = distBetween(lat, lng, plat, plng);
-        if (distM > radiusMeters) continue;
-        seen.add(id);
-        const amenity = row.type && row.type !== 'yes' ? row.type : item.type;
-        places.push({
-          id,
-          name,
-          type: String(amenity),
-          category: getCategory(amenity),
-          phone: null,
-          opening_hours: null,
-          website: null,
-          distM,
-          dist: fmtDist(distM),
-          lat: plat,
-          lng: plng,
-        });
-      }
-    } catch {
-      // try next query
+  const fetchOne = async (item) => {
+    const url =
+      `https://nominatim.openstreetmap.org/search?format=json&limit=10` +
+      `&q=${encodeURIComponent(item.q)}` +
+      `&viewbox=${encodeURIComponent(viewbox)}&bounded=1`;
+    const r = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'VEEDA-Map/1.0 (clinical wellness; contact support@veeda.app)',
+        Accept: 'application/json',
+      },
+    }, 7000);
+    if (!r.ok) return [];
+    const rows = await r.json();
+    const out = [];
+    for (const row of rows || []) {
+      const plat = Number(row.lat);
+      const plng = Number(row.lon);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+      const name = (row.name || row.display_name || '').split(',')[0].trim();
+      if (!name || name.length < 3) continue;
+      const id = `nominatim-${row.osm_type || 'n'}-${row.osm_id || row.place_id}`;
+      const distM = distBetween(lat, lng, plat, plng);
+      if (distM > radiusMeters) continue;
+      const amenity = row.type && row.type !== 'yes' && row.type !== 'administrative' ? row.type : item.type;
+      out.push({
+        id,
+        name,
+        type: String(amenity),
+        category: getCategory(amenity),
+        phone: null,
+        opening_hours: null,
+        website: null,
+        distM,
+        dist: fmtDist(distM),
+        lat: plat,
+        lng: plng,
+      });
     }
-  }
+    return out;
+  };
+
+  // Parallel with a small concurrency limit to respect Nominatim usage policy
+  const queue = queries.slice();
+  const workers = Array.from({ length: 4 }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      if (!item) break;
+      try {
+        const batch = await fetchOne(item);
+        for (const p of batch) {
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          places.push(p);
+        }
+      } catch {
+        // continue other queries
+      }
+    }
+  });
+  await Promise.all(workers);
 
   places.sort((a, b) => a.distM - b.distM);
   return places;
@@ -395,7 +404,7 @@ router.get('/nearby', async (req, res) => {
     ]);
 
     const tasks = [
-      withSoftTimeout(fetchNearbyNominatim(lat, lng, radiusMeters), 12000, 'nominatim')
+      withSoftTimeout(fetchNearbyNominatim(lat, lng, radiusMeters), 18000, 'nominatim')
         .then(p => ({ source: 'nominatim', places: p || [] }))
         .catch(err => { errors.push(`nominatim: ${err.message || err}`); return { source: 'nominatim', places: [] }; }),
       withSoftTimeout(fetchNearbyGeoapify(lat, lng, radiusMeters), 10000, 'geoapify')
