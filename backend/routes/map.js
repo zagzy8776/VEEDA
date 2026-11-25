@@ -314,74 +314,98 @@ async function fetchNearbyNominatim(lat, lng, radiusMeters) {
 
 async function fetchNearbyGeoapify(lat, lng, radiusMeters) {
   const geoKey = process.env.GEOAPIFY_API_KEY;
-  if (!geoKey) return null;
+  if (!geoKey) {
+    const err = new Error('GEOAPIFY_API_KEY not set');
+    err.code = 'NO_KEY';
+    throw err;
+  }
 
-  // Split into batches so healthcare is not crowded out by dozens of fuel stops
-  const batches = [
-    ['healthcare.hospital', 'healthcare.clinic_or_praxis', 'healthcare.pharmacy', 'healthcare', 'emergency.ambulance_station', 'service.police', 'service.fire_station'],
-    ['catering.restaurant', 'catering.fast_food', 'catering.cafe', 'commercial.supermarket', 'commercial.shopping_mall', 'commercial.convenience'],
-    ['service.financial.atm', 'service.financial.bank', 'accommodation.hotel', 'education.school', 'education.university', 'service.vehicle.fuel'],
-  ];
+  // One request with broad categories is faster/more reliable on serverless
+  // than three sequential batches that exceed the soft timeout.
+  const categories = [
+    'healthcare.hospital',
+    'healthcare.clinic_or_praxis',
+    'healthcare.pharmacy',
+    'healthcare',
+    'commercial.supermarket',
+    'commercial.shopping_mall',
+    'commercial.convenience',
+    'catering.restaurant',
+    'catering.fast_food',
+    'catering.cafe',
+    'service.financial.atm',
+    'service.financial.bank',
+    'service.vehicle.fuel',
+    'service.police',
+    'service.fire_station',
+    'accommodation.hotel',
+    'education.school',
+    'education.university',
+  ].join(',');
 
+  const url =
+    `https://api.geoapify.com/v2/places?categories=${categories}` +
+    `&filter=circle:${lng},${lat},${Math.min(radiusMeters, 15000)}` +
+    `&bias=proximity:${lng},${lat}` +
+    `&limit=100&apiKey=${geoKey}`;
+
+  const r = await fetchWithTimeout(url, {
+    headers: { Accept: 'application/json' },
+  }, 9000);
+
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`Geoapify HTTP ${r.status}${body ? `: ${body.slice(0, 120)}` : ''}`);
+  }
+
+  const data = await r.json();
   const seen = new Set();
   const places = [];
 
-  for (const cats of batches) {
-    const url =
-      `https://api.geoapify.com/v2/places?categories=${cats.join(',')}` +
-      `&filter=circle:${lng},${lat},${radiusMeters}&bias=proximity:${lng},${lat}` +
-      `&limit=50&apiKey=${geoKey}`;
-    try {
-      const r = await fetchWithTimeout(url, {}, 12000);
-      if (!r.ok) continue;
-      const data = await r.json();
-      for (const f of data.features || []) {
-        const [plng, plat] = f.geometry?.coordinates || [];
-        const props = f.properties || {};
-        const name = props.name || props.address_line1;
-        if (!name || !Number.isFinite(plat) || !Number.isFinite(plng)) continue;
-        // Prefer real POI names over pure street labels
-        if (/street|road|avenue|close|lane$/i.test(String(name)) && !/hospital|clinic|pharmacy|medical|hospital/i.test(String(name))) {
-          if (!props.name) continue;
-        }
-        const id = `geoapify-${props.place_id || props.osm_id || `${plat},${plng}`}`;
-        if (seen.has(id)) continue;
-        const distM = distBetween(lat, lng, plat, plng);
-        if (distM > radiusMeters) continue;
-        seen.add(id);
-        const catStr = String(props.categories || props.category || '');
-        let amenity = 'place';
-        if (catStr.includes('hospital')) amenity = 'hospital';
-        else if (catStr.includes('pharmacy')) amenity = 'pharmacy';
-        else if (catStr.includes('clinic') || catStr.includes('praxis')) amenity = 'clinic';
-        else if (catStr.includes('ambulance')) amenity = 'hospital';
-        else if (catStr.includes('restaurant') || catStr.includes('fast_food') || catStr.includes('cafe') || catStr.includes('catering')) amenity = 'restaurant';
-        else if (catStr.includes('supermarket') || catStr.includes('shopping_mall') || catStr.includes('convenience')) amenity = 'supermarket';
-        else if (catStr.includes('atm')) amenity = 'atm';
-        else if (catStr.includes('bank')) amenity = 'bank';
-        else if (catStr.includes('fuel')) amenity = 'fuel';
-        else if (catStr.includes('hotel') || catStr.includes('accommodation')) amenity = 'hotel';
-        else if (catStr.includes('school') || catStr.includes('university') || catStr.includes('education')) amenity = 'school';
-        else if (catStr.includes('police')) amenity = 'police';
-        else if (catStr.includes('fire')) amenity = 'fire_station';
-        places.push({
-          id,
-          name: String(name),
-          type: amenity,
-          category: getCategory(amenity),
-          phone: props.contact?.phone || null,
-          opening_hours: props.opening_hours || null,
-          website: props.website || null,
-          distM,
-          dist: fmtDist(distM),
-          lat: Number(plat),
-          lng: Number(plng),
-        });
-      }
-    } catch {
-      // try next batch
-    }
+  for (const f of data.features || []) {
+    const [plng, plat] = f.geometry?.coordinates || [];
+    const props = f.properties || {};
+    const name = props.name || props.address_line1;
+    if (!name || !Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+    // Skip pure street labels without a POI name
+    if (!props.name && /street|road|avenue|close|lane$/i.test(String(name))) continue;
+
+    const id = `geoapify-${props.place_id || props.osm_id || `${plat},${plng}`}`;
+    if (seen.has(id)) continue;
+    const distM = distBetween(lat, lng, plat, plng);
+    if (distM > radiusMeters) continue;
+    seen.add(id);
+
+    const catStr = String(props.categories || props.category || '');
+    let amenity = 'place';
+    if (catStr.includes('hospital')) amenity = 'hospital';
+    else if (catStr.includes('pharmacy')) amenity = 'pharmacy';
+    else if (catStr.includes('clinic') || catStr.includes('praxis') || catStr.includes('healthcare')) amenity = 'clinic';
+    else if (catStr.includes('restaurant') || catStr.includes('fast_food') || catStr.includes('cafe') || catStr.includes('catering')) amenity = 'restaurant';
+    else if (catStr.includes('supermarket') || catStr.includes('shopping_mall') || catStr.includes('convenience')) amenity = 'supermarket';
+    else if (catStr.includes('atm')) amenity = 'atm';
+    else if (catStr.includes('bank')) amenity = 'bank';
+    else if (catStr.includes('fuel')) amenity = 'fuel';
+    else if (catStr.includes('hotel') || catStr.includes('accommodation')) amenity = 'hotel';
+    else if (catStr.includes('school') || catStr.includes('university') || catStr.includes('education')) amenity = 'school';
+    else if (catStr.includes('police')) amenity = 'police';
+    else if (catStr.includes('fire')) amenity = 'fire_station';
+
+    places.push({
+      id,
+      name: String(name),
+      type: amenity,
+      category: getCategory(amenity),
+      phone: props.contact?.phone || null,
+      opening_hours: props.opening_hours || null,
+      website: props.website || null,
+      distM,
+      dist: fmtDist(distM),
+      lat: Number(plat),
+      lng: Number(plng),
+    });
   }
+
   places.sort((a, b) => a.distM - b.distM);
   return places;
 }
@@ -404,13 +428,13 @@ router.get('/nearby', async (req, res) => {
     ]);
 
     const tasks = [
-      withSoftTimeout(fetchNearbyNominatim(lat, lng, radiusMeters), 18000, 'nominatim')
-        .then(p => ({ source: 'nominatim', places: p || [] }))
-        .catch(err => { errors.push(`nominatim: ${err.message || err}`); return { source: 'nominatim', places: [] }; }),
-      withSoftTimeout(fetchNearbyGeoapify(lat, lng, radiusMeters), 10000, 'geoapify')
+      withSoftTimeout(fetchNearbyGeoapify(lat, lng, radiusMeters), 12000, 'geoapify')
         .then(p => ({ source: 'geoapify', places: p || [] }))
         .catch(err => { errors.push(`geoapify: ${err.message || err}`); return { source: 'geoapify', places: [] }; }),
-      withSoftTimeout(fetchNearbyOverpass(lat, lng, radiusMeters), 6000, 'overpass')
+      withSoftTimeout(fetchNearbyNominatim(lat, lng, radiusMeters), 16000, 'nominatim')
+        .then(p => ({ source: 'nominatim', places: p || [] }))
+        .catch(err => { errors.push(`nominatim: ${err.message || err}`); return { source: 'nominatim', places: [] }; }),
+      withSoftTimeout(fetchNearbyOverpass(lat, lng, radiusMeters), 5000, 'overpass')
         .then(p => ({ source: 'overpass', places: p || [] }))
         .catch(err => { errors.push(`overpass: ${err.message || err}`); return { source: 'overpass', places: [] }; }),
     ];
@@ -494,6 +518,7 @@ router.get('/nearby', async (req, res) => {
       count: places.length,
       radiusMeters,
       sources: sourcesUsed,
+      ...(errors.length ? { warnings: errors } : {}),
     });
   } catch (err) {
     res.status(503).json({ places: [], hospitals: [], count: 0, error: err.message || 'Nearby places unavailable' });
