@@ -139,55 +139,283 @@ router.post('/context', async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+
+async function fetchWithTimeout(url, options = {}, ms = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function mapOverpassElements(elements, lat, lng, radiusMeters) {
+  const seen = new Set();
+  return (elements || [])
+    .filter(e => (e.lat || e.center?.lat) && (e.lon || e.center?.lon) && e.tags?.name)
+    .map(e => {
+      const plat = e.lat ?? e.center.lat;
+      const plng = e.lon ?? e.center.lon;
+      const amenity = e.tags?.amenity || e.tags?.shop || e.tags?.tourism || 'place';
+      const id = `osm-${e.type}-${e.id}`;
+      return {
+        id,
+        name: String(e.tags.name),
+        type: String(amenity),
+        category: getCategory(amenity),
+        phone: e.tags?.phone || e.tags?.['contact:phone'] || null,
+        opening_hours: e.tags?.opening_hours || null,
+        website: e.tags?.website || e.tags?.['contact:website'] || null,
+        distM: distBetween(lat, lng, plat, plng),
+        lat: Number(plat),
+        lng: Number(plng),
+      };
+    })
+    .filter(p => {
+      if (p.distM > radiusMeters || seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    })
+    .map(p => ({ ...p, dist: fmtDist(p.distM) }))
+    .sort((a, b) => a.distM - b.distM);
+}
+
+async function fetchNearbyOverpass(lat, lng, radiusMeters) {
+  const bbox = bboxFor(lat, lng, radiusMeters);
+  // Prefer POST body — GET URLs can get truncated / blocked by some mirrors
+  const query = `[out:json][timeout:20];(
+  nwr[amenity~"hospital|clinic|doctors|dentist|pharmacy|veterinary"](${bbox});
+  nwr[amenity~"restaurant|cafe|fast_food|bar|pub|food_court"](${bbox});
+  nwr[shop~"supermarket|convenience|grocery|mall|department_store|bakery|butcher|greengrocer"](${bbox});
+  nwr[amenity~"school|university|college|bank|atm|fuel|parking|police|fire_station"](${bbox});
+  nwr[tourism~"hotel|hostel|motel|guest_house"](${bbox});
+  nwr[amenity="place_of_worship"](${bbox});
+);out center tags;`;
+
+  let lastError = null;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const r = await fetchWithTimeout(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'VEEDA-Map/1.0' },
+        body: `data=${encodeURIComponent(query)}`,
+      }, 14000);
+      if (!r.ok) {
+        lastError = new Error(`Overpass HTTP ${r.status}`);
+        continue;
+      }
+      const data = await r.json();
+      if (!Array.isArray(data.elements)) {
+        lastError = new Error('Overpass returned no elements');
+        continue;
+      }
+      return mapOverpassElements(data.elements, lat, lng, radiusMeters);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('All Overpass endpoints failed');
+}
+
+/** Nominatim fallback — slower, but works when Overpass is blocked from the host. */
+async function fetchNearbyNominatim(lat, lng, radiusMeters) {
+  const queries = [
+    { q: 'hospital', type: 'hospital' },
+    { q: 'clinic', type: 'clinic' },
+    { q: 'pharmacy', type: 'pharmacy' },
+    { q: 'police', type: 'police' },
+    { q: 'atm', type: 'atm' },
+    { q: 'bank', type: 'bank' },
+    { q: 'fuel', type: 'fuel' },
+    { q: 'supermarket', type: 'supermarket' },
+    { q: 'restaurant', type: 'restaurant' },
+    { q: 'hotel', type: 'hotel' },
+    { q: 'school', type: 'school' },
+  ];
+
+  // viewbox: left, top, right, bottom (lng/lat)
+  const latDelta = radiusMeters / 111320;
+  const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 0.15);
+  const lngDelta = radiusMeters / (111320 * cosLat);
+  const left = lng - lngDelta;
+  const right = lng + lngDelta;
+  const top = lat + latDelta;
+  const bottom = lat - latDelta;
+  const viewbox = `${left},${top},${right},${bottom}`;
+
+  const seen = new Set();
+  const places = [];
+
+  // Sequential with a short pause to respect Nominatim usage policy
+  for (const item of queries) {
+    try {
+      const url =
+        `https://nominatim.openstreetmap.org/search?format=json&limit=12` +
+        `&q=${encodeURIComponent(item.q)}` +
+        `&viewbox=${encodeURIComponent(viewbox)}&bounded=1` +
+        `&addressdetails=0`;
+      const r = await fetchWithTimeout(url, {
+        headers: { 'User-Agent': 'VEEDA-Map/1.0 (wellness map; contact: support@veeda.app)', Accept: 'application/json' },
+      }, 10000);
+      if (!r.ok) continue;
+      const rows = await r.json();
+      for (const row of rows || []) {
+        const plat = Number(row.lat);
+        const plng = Number(row.lon);
+        if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+        const name = (row.name || row.display_name || '').split(',')[0].trim();
+        if (!name) continue;
+        const id = `nominatim-${row.osm_type || 'n'}-${row.osm_id || row.place_id}`;
+        if (seen.has(id)) continue;
+        const distM = distBetween(lat, lng, plat, plng);
+        if (distM > radiusMeters) continue;
+        seen.add(id);
+        const amenity = row.type && row.type !== 'yes' ? row.type : item.type;
+        places.push({
+          id,
+          name,
+          type: String(amenity),
+          category: getCategory(amenity),
+          phone: null,
+          opening_hours: null,
+          website: null,
+          distM,
+          dist: fmtDist(distM),
+          lat: plat,
+          lng: plng,
+        });
+      }
+    } catch {
+      // try next query
+    }
+  }
+
+  places.sort((a, b) => a.distM - b.distM);
+  return places;
+}
+
+async function fetchNearbyGeoapify(lat, lng, radiusMeters) {
+  const geoKey = process.env.GEOAPIFY_API_KEY;
+  if (!geoKey) return null;
+  const categories = [
+    'healthcare.hospital',
+    'healthcare.clinic_or_praxis',
+    'healthcare.pharmacy',
+    'catering.restaurant',
+    'commercial.supermarket',
+    'service.financial.atm',
+    'service.vehicle.fuel',
+    'accommodation.hotel',
+    'education.school',
+    'service.police',
+  ].join(',');
+  const url =
+    `https://api.geoapify.com/v2/places?categories=${categories}` +
+    `&filter=circle:${lng},${lat},${radiusMeters}&bias=proximity:${lng},${lat}` +
+    `&limit=80&apiKey=${geoKey}`;
+  const r = await fetchWithTimeout(url, {}, 12000);
+  if (!r.ok) throw new Error(`Geoapify HTTP ${r.status}`);
+  const data = await r.json();
+  const seen = new Set();
+  const places = [];
+  for (const f of data.features || []) {
+    const [plng, plat] = f.geometry?.coordinates || [];
+    const props = f.properties || {};
+    const name = props.name || props.address_line1;
+    if (!name || !Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+    const id = `geoapify-${props.place_id || props.osm_id || `${plat},${plng}`}`;
+    if (seen.has(id)) continue;
+    const distM = distBetween(lat, lng, plat, plng);
+    if (distM > radiusMeters) continue;
+    seen.add(id);
+    const cats = String(props.categories || props.category || '');
+    let amenity = 'place';
+    if (cats.includes('hospital')) amenity = 'hospital';
+    else if (cats.includes('pharmacy')) amenity = 'pharmacy';
+    else if (cats.includes('clinic')) amenity = 'clinic';
+    else if (cats.includes('restaurant') || cats.includes('catering')) amenity = 'restaurant';
+    else if (cats.includes('supermarket') || cats.includes('commercial')) amenity = 'supermarket';
+    else if (cats.includes('atm')) amenity = 'atm';
+    else if (cats.includes('fuel')) amenity = 'fuel';
+    else if (cats.includes('hotel') || cats.includes('accommodation')) amenity = 'hotel';
+    else if (cats.includes('school') || cats.includes('education')) amenity = 'school';
+    else if (cats.includes('police')) amenity = 'police';
+    places.push({
+      id,
+      name: String(name),
+      type: amenity,
+      category: getCategory(amenity),
+      phone: props.contact?.phone || null,
+      opening_hours: props.opening_hours || null,
+      website: props.website || null,
+      distM,
+      dist: fmtDist(distM),
+      lat: Number(plat),
+      lng: Number(plng),
+    });
+  }
+  places.sort((a, b) => a.distM - b.distM);
+  return places;
+}
+
 router.get('/nearby', async (req, res) => {
   try {
     const { lat, lng } = assertCoords(req.query.lat, req.query.lng);
     const radiusMeters = Math.min(Math.max(Number(req.query.radiusMeters || 5000), 500), 10000);
-    const bbox = bboxFor(lat, lng, radiusMeters);
-    const query = `[out:json][timeout:25];(
-      nwr[amenity~"hospital|clinic|doctors|dentist|pharmacy|veterinary"](${bbox});
-      nwr[amenity~"restaurant|cafe|fast_food|bar|pub|food_court"](${bbox});
-      nwr[shop~"supermarket|convenience|grocery|mall|department_store|bakery|butcher|greengrocer"](${bbox});
-      nwr[amenity~"school|university|college|bank|atm|fuel|parking|police|fire_station"](${bbox});
-      nwr[tourism~"hotel|hostel|motel|guest_house"](${bbox});
-      nwr[amenity="place_of_worship"](${bbox});
-    );out center tags;`;
 
-    const r = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-    if (!r.ok) throw new Error(`Overpass HTTP ${r.status}`);
-    const data = await r.json();
-    const seen = new Set();
+    let places = [];
+    let source = 'none';
+    const errors = [];
 
-    const places = (data.elements || [])
-      .filter(e => (e.lat || e.center?.lat) && (e.lon || e.center?.lon) && e.tags?.name)
-      .map(e => {
-        const plat = e.lat ?? e.center.lat;
-        const plng = e.lon ?? e.center.lon;
-        const amenity = e.tags?.amenity || e.tags?.shop || e.tags?.tourism || 'place';
-        const id = `osm-${e.type}-${e.id}`;
-        return {
-          id,
-          name: String(e.tags.name),
-          type: String(amenity),
-          category: getCategory(amenity),
-          phone: e.tags?.phone || e.tags?.['contact:phone'] || null,
-          opening_hours: e.tags?.opening_hours || null,
-          website: e.tags?.website || e.tags?.['contact:website'] || null,
-          distM: distBetween(lat, lng, plat, plng),
-          lat: Number(plat),
-          lng: Number(plng),
-        };
-      })
-      .filter(p => {
-        if (p.distM > radiusMeters || seen.has(p.id)) return false;
-        seen.add(p.id);
-        return true;
-      })
-      .map(p => ({ ...p, dist: fmtDist(p.distM) }))
-      .sort((a, b) => a.distM - b.distM);
+    // 1) Geoapify if configured (fast, reliable on serverless)
+    try {
+      const geo = await fetchNearbyGeoapify(lat, lng, radiusMeters);
+      if (geo && geo.length) {
+        places = geo;
+        source = 'geoapify';
+      }
+    } catch (err) {
+      errors.push(`geoapify: ${err.message || err}`);
+    }
 
-    const hospitals = places.filter(p => p.type === 'hospital').slice(0, 5);
-    res.json({ places, hospitals, count: places.length, radiusMeters });
+    // 2) Overpass mirrors
+    if (!places.length) {
+      try {
+        places = await fetchNearbyOverpass(lat, lng, radiusMeters);
+        if (places.length) source = 'overpass';
+      } catch (err) {
+        errors.push(`overpass: ${err.message || err}`);
+      }
+    }
+
+    // 3) Nominatim fallback so the map still still shows hospitals / pharmacies
+    if (!places.length) {
+      try {
+        places = await fetchNearbyNominatim(lat, lng, radiusMeters);
+        if (places.length) source = 'nominatim';
+      } catch (err) {
+        errors.push(`nominatim: ${err.message || err}`);
+      }
+    }
+
+    const hospitals = places.filter(p => p.type === 'hospital' || p.category === 'health').slice(0, 8);
+    if (!places.length) {
+      return res.status(503).json({
+        places: [],
+        hospitals: [],
+        count: 0,
+        radiusMeters,
+        source,
+        error: errors.join('; ') || 'Nearby places unavailable',
+      });
+    }
+    res.json({ places, hospitals, count: places.length, radiusMeters, source });
   } catch (err) {
     res.status(503).json({ places: [], hospitals: [], count: 0, error: err.message || 'Nearby places unavailable' });
   }
