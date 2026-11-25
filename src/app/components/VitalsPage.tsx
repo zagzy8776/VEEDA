@@ -1,3 +1,4 @@
+import React from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Heart, Wind, Droplet, Moon, Footprints, Thermometer, Camera, Mic, AlertTriangle, X, CheckCircle } from 'lucide-react';
 import { BREATHE, HEARTBEAT, INVITE, SPRING_SOFT, listContainer, listItem, sheetVariants } from '../motion';
@@ -7,6 +8,34 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import type { VedaApp } from '../useVedaApp';
 import { useHeartRate, useBreathRate } from '../sensors';
 import { RPPG_EXPORT_CONSENT } from '../rppgResearchExport';
+
+// ── ChartErrorBoundary ──────────────────────────────────────────────────────
+// recharts 2.15.2 can throw "ReferenceError: Cannot access 'ee' before
+// initialization" during AnimatePresence exit (motion's onExitComplete triggers
+// recharts cleanup on a module that is in temporal dead zone). This boundary
+// catches that error so a chart cleanup failure never blanks the whole page.
+class ChartErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.muted, flexDirection: 'column', gap: 8 }}>
+          <Heart size={24} style={{ opacity: 0.3 }} />Chart temporarily unavailable
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const C = { teal: '#2DD4A4', blue: '#378ADD', amber: '#EF9F27', red: '#E24B4A', text: '#E2F4F0', muted: '#5A7A72', card: 'rgba(13,21,37,0.88)', border: 'rgba(255,255,255,0.08)' };
 
@@ -530,15 +559,17 @@ export function VitalsPage({ app }: { app: VedaApp }) {
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>7-Day Trend</div>
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '16px 8px 8px' }}>
               {trendData.some(d => d.hr !== null || d.br !== null) ? (
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={trendData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <XAxis dataKey="day" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTip />} />
-                    <Line type="monotone" dataKey="hr" name="HR" stroke={C.red} strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="br" name="BR" stroke={C.blue} strokeWidth={2} dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={trendData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="day" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTip />} />
+                      <Line type="monotone" dataKey="hr" name="HR" stroke={C.red} strokeWidth={2} dot={false} connectNulls />
+                      <Line type="monotone" dataKey="br" name="BR" stroke={C.blue} strokeWidth={2} dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
               ) : (
                 <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.muted, flexDirection: 'column', gap: 8 }}>
                   <Heart size={24} style={{ opacity: 0.3 }} />
