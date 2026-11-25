@@ -92,10 +92,250 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
   const mapRef = useRef<HTMLDivElement>(null), mapObj = useRef<any>(null), userMarker = useRef<any>(null), accuracyCirc = useRef<any>(null), placeMarkers = useRef<any[]>([]), pendingPlaces = useRef<Place[]>([]), userHasPanned = useRef(false), lastFetch = useRef<{ lat: number; lng: number } | null>(null), fetchSeq = useRef(0), searchDebounce = useRef<any>(null), skipSearch = useRef(false);
   const [search, setSearch] = useState(''), [searchRes, setSearchRes] = useState<SearchResult[]>([]), [searchOpen, setSearchOpen] = useState(false), [places, setPlaces] = useState<Place[]>([]), [loading, setLoading] = useState(false), [mapError, setMapError] = useState<string | null>(null), [selected, setSelected] = useState<string | null>(null), [address, setAddress] = useState(''), [showSOS, setShowSOS] = useState(false), [mapReady, setMapReady] = useState(false), [online, setOnline] = useState(() => navigator.onLine), [eta, setEta] = useState<ETA | null>(null), [etaLoading, setEtaLoading] = useState(false), [geofence, setGeofence] = useState<string | null>(null), [filter, setFilter] = useState('all'), [favorites, setFavorites] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('veda_fav_places') || '[]'); } catch { return []; } });
 
+  // Reduced motion preference — must be declared at top level (React hook rule)
+  const reduced = useReducedMotion();
+
   // A remembered centre keeps the page useful when there is no live fix. The
   // map, the nearby fetch and the reverse geocode all fall back to it, while the
   // "you are here" marker stays strictly tied to a real fix.
   const [lastFix, setLastFix] = useState<{ lat: number; lng: number } | null>(readLastFix);
+  // ── Continuous location tracking with sonar rings ─────────────────────────
+  // Watch GPS continuously for real-time map updates and nearby detection
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    
+    const success = (pos: GeolocationPosition) => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        const next = { lat: latitude, lng: longitude };
+        setLastFix(prev => {
+          if (prev && distFn(prev.lat, prev.lng, next.lat, next.lng) < 50) return prev;
+          try { localStorage.setItem(LAST_FIX_KEY, JSON.stringify(next)); } catch {}
+          return next;
+        });
+        // Update sonar rings and marker dots on position change
+        updateSonarRings(latitude, longitude);
+        updateMarkerDots(latitude, longitude);
+      }
+    };
+    
+    locationWatchId.current = navigator.geolocation.watchPosition(success, null, {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 10000
+    });
+    
+    return () => {
+      if (locationWatchId.current) navigator.geolocation.clearWatch(locationWatchId.current);
+    };
+  }, [updateSonarRings]);
+  
+  // ── Sonar ring animation ──────────────────────────────────────────────────
+  const updateSonarRings = useCallback((lat: number, lng: number) => {
+    const map = mapObj.current;
+    const L = (window as any).L;
+    if (!map || !L || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    
+    // Remove old rings
+    sonarRings.current.forEach(ring => ring.remove());
+    sonarRings.current = [];
+    
+    // Create expanding sonar rings
+    for (let i = 0; i < 3; i++) {
+      const delay = i * 0.7;
+      setTimeout(() => {
+        const ring = L.circle([lat, lng], {
+          radius: 0,
+          color: '#2DD4A4',
+          fillColor: '#2DD4A4',
+          fillOpacity: 0.15 - (i * 0.04),
+          weight: 2 - (i * 0.5),
+          opacity: 0.6 - (i * 0.15),
+          dashArray: '6 4'
+        }).addTo(map);
+        
+        // Animate ring expansion
+        let radius = 0;
+        const maxRadius = 500 + (i * 300);
+        const growthRate = 2 + (i * 1);
+        const anim = setInterval(() => {
+          radius += growthRate;
+          if (radius > maxRadius) {
+            clearInterval(anim);
+            ring.remove();
+          } else {
+            ring.setRadius(radius);
+            ring.setOpacity((0.6 - (i * 0.15)) * (1 - radius / maxRadius));
+          }
+        }, 30);
+        
+        sonarRings.current.push(ring);
+      }, delay * 1000);
+    }
+  }, []);
+  
+  // ── Connection lines to nearby places ────────────────────────────────────
+  const updateConnectionLines = useCallback((userLat: number, userLng: number, nearbyPlaces: Place[]) => {
+    const map = mapObj.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+    
+    // Remove old lines
+    connectionLines.current.forEach(line => line.remove());
+    connectionLines.current = [];
+    
+    // Show connections only to places within 2km
+    const closePlaces = nearbyPlaces.filter(p => p.distM <= 2000).slice(0, 8);
+    
+    closePlaces.forEach((place, index) => {
+      const cat = getCat(place);
+      const delay = index * 150;
+      
+      setTimeout(() => {
+        const line = L.polyline(
+          [[userLat, userLng], [place.lat, place.lng]],
+          {
+            color: cat.color,
+            weight: 2,
+            opacity: 0.6,
+            dashArray: '8 6',
+            lineCap: 'round'
+          }
+        ).addTo(map);
+        
+        // Fade in animation
+        let opacity = 0;
+        const fadeIn = setInterval(() => {
+          opacity += 0.05;
+          if (opacity >= 0.6) {
+            clearInterval(fadeIn);
+          }
+          line.setOpacity(opacity);
+        }, 50);
+        
+        connectionLines.current.push(line);
+      }, delay);
+    });
+  }, []);
+  
+  // ── Animated marker dots (Snapchat-style pulse outward from user) ─────────
+  const updateMarkerDots = useCallback((lat: number, lng: number) => {
+    const map = mapObj.current;
+    const L = (window as any).L;
+    if (!map || !L || !Number.isFinite(lat) || !Number.isFinite(lng) || reduced) return;
+
+    // Remove old dots
+    markerDots.current.forEach(d => d.remove());
+    markerDots.current = [];
+
+    // Create 5 expanding dots in a circle around user
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * 2 * Math.PI;
+      const dotLat = lat + (Math.sin(angle) * 0.003);
+      const dotLng = lng + (Math.cos(angle) * 0.003);
+      const dot = L.circleMarker([dotLat, dotLng], {
+        radius: 4,
+        color: C.teal,
+        fillColor: C.teal,
+        fillOpacity: 0.8,
+        weight: 2,
+        opacity: 0
+      }).addTo(map);
+
+      // Animate dot expanding outward
+      let radius = 0;
+      const maxRadius = 80 + (i * 40);
+      const anim = setInterval(() => {
+        radius += 3;
+        if (radius > maxRadius) {
+          clearInterval(anim);
+          dot.remove();
+        } else {
+          dot.setRadius(radius / 4);
+          dot.setOpacity(Math.max(0, 1 - radius / maxRadius));
+          dot.setLatLng([lat + Math.sin(angle) * (radius / 100000), lng + Math.cos(angle) * (radius / 100000)]);
+        }
+      }, 30);
+      markerDots.current.push(dot);
+    }
+  }, [reduced]);
+
+  // ── Connection dots between user and nearby places ────────────────────────
+  const updateConnectionDots = useCallback((userLat: number, userLng: number, nearbyPlaces: Place[]) => {
+    const map = mapObj.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+
+    // Remove old dots
+    connectionDots.current.forEach(d => d.remove());
+    connectionDots.current = [];
+
+    // Show dots to places within 3km
+    const closePlaces = nearbyPlaces.filter(p => p.distM <= 3000).slice(0, 6);
+    closePlaces.forEach((place, pIdx) => {
+      const cat = getCat(place);
+      const dist = distFn(userLat, userLng, place.lat, place.lng);
+      const steps = Math.max(2, Math.floor(dist / 150));
+
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const dotLat = userLat + (place.lat - userLat) * t;
+        const dotLng = userLng + (place.lng - userLng) * t;
+        const dot = L.circleMarker([dotLat, dotLng], {
+          radius: 2 + (t * 2),
+          color: cat.color,
+          fillColor: cat.color,
+          fillOpacity: 0.6,
+          weight: 0,
+          opacity: 0
+        }).addTo(map);
+
+        // Pulse animation
+        let pulse = 0;
+        const anim = setInterval(() => {
+          pulse += 0.05;
+          if (pulse > 1) pulse = 0;
+          dot.setOpacity(0.3 + 0.4 * Math.sin(pulse * Math.PI));
+          dot.setRadius(2 + 2 * Math.sin(pulse * Math.PI));
+        }, 50);
+        connectionDots.current.push(dot);
+      }
+    });
+  }, []);
+
+  // ── Auto-refresh nearby places on movement ──────────────────────────────
+  useEffect(() => {
+    if (!center || !online) return;
+    const prev = lastFetch.current;
+    // Fetch when moved more than 200m
+    if (!prev || distFn(center.lat, center.lng, prev.lat, prev.lng) > 200) {
+      fetchNearby(center.lat, center.lng);
+    }
+  }, [center?.lat, center?.lng, online, fetchNearby]);
+  
+  // ── Update connections when places change ───────────────────────────────
+  useEffect(() => {
+    if (center && places.length > 0) {
+      updateConnectionLines(center.lat, center.lng, places);
+      updateMarkerDots(center.lat, center.lng);
+      updateConnectionDots(center.lat, center.lng, places);
+      updateSonarRings(center.lat, center.lng);
+    }
+  }, [places, center?.lat, center?.lng, updateConnectionLines, updateMarkerDots, updateConnectionDots, updateSonarRings]);
+  
+  // ── Periodic nearby refresh (every 30s) ─────────────────────────────────
+  useEffect(() => {
+    if (!center || !online) return;
+    nearbyWatchInterval.current = window.setInterval(() => {
+      fetchNearby(center.lat, center.lng);
+    }, 30000);
+    return () => {
+      if (nearbyWatchInterval.current) clearInterval(nearbyWatchInterval.current);
+    };
+  }, [center?.lat, center?.lng, online, fetchNearby]);
+  
+  // The sonar rings are decoration, so they are skipped when the OS asks for
+  // less motion.
   const live = location.lat !== null && location.lng !== null;
   const center = live ? { lat: location.lat as number, lng: location.lng as number } : lastFix;
   const startRef = useRef(center);
@@ -113,7 +353,6 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
 
   // The sonar rings are decoration, so they are skipped when the OS asks for
   // less motion.
-  const reduced = useReducedMotion();
 
   useEffect(() => { const on = () => setOnline(true), off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); }; }, []);
 
@@ -159,6 +398,11 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
               0% { box-shadow:0 0 0 3px ${cat.color}30,0 0 12px ${cat.color}60; }
               50% { box-shadow:0 0 0 8px ${cat.color}0,0 0 20px ${cat.color}90; }
               100% { box-shadow:0 0 0 3px ${cat.color}30,0 0 12px ${cat.color}60; }
+            }
+            @keyframes vedaStoryPulse {
+              0% { box-shadow:0 0 0 0 ${cat.color}80; transform: scale(1); }
+              50% { box-shadow:0 0 0 6px ${cat.color}40; transform: scale(1.1); }
+              100% { box-shadow:0 0 0 0 ${cat.color}0; transform: scale(1); }
             }
           </style>
         `, 
@@ -678,6 +922,10 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
     </div>
   </>;
 }
+
+
+
+
 
 
 
