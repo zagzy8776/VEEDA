@@ -387,19 +387,23 @@ router.get('/nearby', async (req, res) => {
 
     // Run sources in parallel and MERGE results so one weak source cannot
     // hide hospitals/pharmacies that another source still knows about.
+    // Prefer fast sources. Overpass is often blocked/slow on serverless — give it
+    // a short timeout and never let it prevent Nominatim/Geoapify results.
+    const withSoftTimeout = (promise, ms, label) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), ms)),
+    ]);
+
     const tasks = [
-      fetchNearbyGeoapify(lat, lng, radiusMeters).then(p => ({ source: 'geoapify', places: p || [] })).catch(err => {
-        errors.push(`geoapify: ${err.message || err}`);
-        return { source: 'geoapify', places: [] };
-      }),
-      fetchNearbyOverpass(lat, lng, radiusMeters).then(p => ({ source: 'overpass', places: p || [] })).catch(err => {
-        errors.push(`overpass: ${err.message || err}`);
-        return { source: 'overpass', places: [] };
-      }),
-      fetchNearbyNominatim(lat, lng, radiusMeters).then(p => ({ source: 'nominatim', places: p || [] })).catch(err => {
-        errors.push(`nominatim: ${err.message || err}`);
-        return { source: 'nominatim', places: [] };
-      }),
+      withSoftTimeout(fetchNearbyNominatim(lat, lng, radiusMeters), 12000, 'nominatim')
+        .then(p => ({ source: 'nominatim', places: p || [] }))
+        .catch(err => { errors.push(`nominatim: ${err.message || err}`); return { source: 'nominatim', places: [] }; }),
+      withSoftTimeout(fetchNearbyGeoapify(lat, lng, radiusMeters), 10000, 'geoapify')
+        .then(p => ({ source: 'geoapify', places: p || [] }))
+        .catch(err => { errors.push(`geoapify: ${err.message || err}`); return { source: 'geoapify', places: [] }; }),
+      withSoftTimeout(fetchNearbyOverpass(lat, lng, radiusMeters), 6000, 'overpass')
+        .then(p => ({ source: 'overpass', places: p || [] }))
+        .catch(err => { errors.push(`overpass: ${err.message || err}`); return { source: 'overpass', places: [] }; }),
     ];
     const results = await Promise.all(tasks);
     for (const r of results) buckets.push(r);
@@ -488,24 +492,164 @@ router.get('/nearby', async (req, res) => {
 });
 
 router.get('/search', async (req, res) => {
-  const { q, lat, lng } = req.query;
+  const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
-  const geoKey = process.env.GEOAPIFY_API_KEY;
-  if (geoKey) {
+
+  let userLat = null;
+  let userLng = null;
+  try {
+    if (req.query.lat != null && req.query.lng != null) {
+      const c = assertCoords(req.query.lat, req.query.lng);
+      userLat = c.lat;
+      userLng = c.lng;
+    }
+  } catch {}
+
+  const maxKm = 40; // drop anything farther than this when we have a fix
+  const results = [];
+  const seen = new Set();
+
+  const pushResult = (item) => {
+    if (!item?.name || !Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return;
+    const key = `${String(item.name).toLowerCase()}|${item.lat.toFixed(3)}|${item.lng.toFixed(3)}`;
+    if (seen.has(key)) return;
+    if (userLat != null && userLng != null) {
+      const d = distBetween(userLat, userLng, item.lat, item.lng);
+      item.distM = d;
+      item.dist = fmtDist(d);
+      if (d > maxKm * 1000) return; // never show Uganda when the user is in Nigeria
+    }
+    seen.add(key);
+    results.push(item);
+  };
+
+  // 1) Local amenity-style search first when we know where the user is
+  if (userLat != null && userLng != null) {
+    const latDelta = maxKm / 111.32;
+    const cosLat = Math.max(Math.cos(userLat * Math.PI / 180), 0.15);
+    const lngDelta = maxKm / (111.32 * cosLat);
+    const viewbox = `${userLng - lngDelta},${userLat + latDelta},${userLng + lngDelta},${userLat - latDelta}`;
+
+    // Geoapify places (local) when key present
+    const geoKey = process.env.GEOAPIFY_API_KEY;
+    if (geoKey) {
+      try {
+        const cats = /hospital|clinic|medical/i.test(q)
+          ? 'healthcare.hospital,healthcare.clinic_or_praxis,healthcare'
+          : /pharmac|chemist/i.test(q)
+            ? 'healthcare.pharmacy'
+            : /police/i.test(q)
+              ? 'service.police'
+              : /atm|bank/i.test(q)
+                ? 'service.financial.atm,service.financial.bank'
+                : /fuel|petrol|gas/i.test(q)
+                  ? 'service.vehicle.fuel'
+                  : /hotel/i.test(q)
+                    ? 'accommodation.hotel'
+                    : /school/i.test(q)
+                      ? 'education.school,education.university'
+                      : /restaurant|food/i.test(q)
+                        ? 'catering.restaurant,catering.fast_food'
+                        : null;
+        const url = cats
+          ? `https://api.geoapify.com/v2/places?categories=${cats}&filter=circle:${userLng},${userLat},${maxKm * 1000}&bias=proximity:${userLng},${userLat}&limit=15&apiKey=${geoKey}`
+          : `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(q)}&filter=circle:${userLng},${userLat},${maxKm * 1000}&bias=proximity:${userLng},${userLat}&limit=12&apiKey=${geoKey}`;
+        const r = await fetchWithTimeout(url, {}, 8000);
+        if (r.ok) {
+          const d = await r.json();
+          for (const f of d.features || []) {
+            const coords = f.geometry?.coordinates;
+            if (!coords) continue;
+            const props = f.properties || {};
+            pushResult({
+              name: props.name || props.address_line1 || props.formatted?.split(',')[0],
+              address: props.formatted || props.address_line2 || '',
+              lat: coords[1],
+              lng: coords[0],
+              type: props.categories?.[0] || props.result_type || 'place',
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // Nominatim STRICTLY bounded to the user's area
     try {
-      const bias = lat && lng ? `&bias=proximity:${lng},${lat}` : '';
-      const r = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(q)}&limit=8&apiKey=${geoKey}${bias}`);
-      const d = await r.json();
-      const results = (d.features || []).map(f => ({ name: f.properties.name || f.properties.formatted?.split(',')[0], address: f.properties.formatted, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], type: f.properties.result_type || 'place' }));
-      if (results.length) return res.json(results);
+      const url =
+        `https://nominatim.openstreetmap.org/search?format=json&limit=12` +
+        `&q=${encodeURIComponent(q)}` +
+        `&viewbox=${encodeURIComponent(viewbox)}&bounded=1` +
+        `&addressdetails=1`;
+      const r = await fetchWithTimeout(url, {
+        headers: { 'User-Agent': 'VEEDA-Map/1.0 (wellness map)', Accept: 'application/json' },
+      }, 9000);
+      if (r.ok) {
+        const d = await r.json();
+        for (const f of d || []) {
+          pushResult({
+            name: f.name || f.display_name?.split(',')[0],
+            address: f.display_name || '',
+            lat: parseFloat(f.lat),
+            lng: parseFloat(f.lon),
+            type: f.type || 'place',
+          });
+        }
+      }
     } catch {}
   }
-  try {
-    const viewbox = lat && lng ? `&viewbox=${parseFloat(lng)-0.2},${parseFloat(lat)+0.2},${parseFloat(lng)+0.2},${parseFloat(lat)-0.2}&bounded=0` : '';
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8${viewbox}`, { headers: { 'User-Agent': 'VEEDA-ClinicalWellness/1.0' } });
-    const d = await r.json();
-    res.json((d || []).map(f => ({ name: f.display_name?.split(',')[0], address: f.display_name, lat: parseFloat(f.lat), lng: parseFloat(f.lon), type: f.type })));
-  } catch { res.json([]); }
+
+  // 2) Only if nothing local: wider geocode (still distance-filtered when possible)
+  if (!results.length) {
+    const geoKey = process.env.GEOAPIFY_API_KEY;
+    if (geoKey) {
+      try {
+        const bias = userLat != null ? `&bias=proximity:${userLng},${userLat}&filter=circle:${userLng},${userLat},${maxKm * 1000}` : '';
+        const r = await fetchWithTimeout(
+          `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(q)}&limit=8&apiKey=${geoKey}${bias}`,
+          {},
+          8000,
+        );
+        if (r.ok) {
+          const d = await r.json();
+          for (const f of d.features || []) {
+            pushResult({
+              name: f.properties.name || f.properties.formatted?.split(',')[0],
+              address: f.properties.formatted,
+              lat: f.geometry.coordinates[1],
+              lng: f.geometry.coordinates[0],
+              type: f.properties.result_type || 'place',
+            });
+          }
+        }
+      } catch {}
+    }
+  }
+
+  if (!results.length && userLat == null) {
+    // Absolute last resort without a location — global nominatim
+    try {
+      const r = await fetchWithTimeout(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8`,
+        { headers: { 'User-Agent': 'VEEDA-Map/1.0' } },
+        8000,
+      );
+      if (r.ok) {
+        const d = await r.json();
+        for (const f of d || []) {
+          pushResult({
+            name: f.display_name?.split(',')[0],
+            address: f.display_name,
+            lat: parseFloat(f.lat),
+            lng: parseFloat(f.lon),
+            type: f.type,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  results.sort((a, b) => (a.distM ?? 0) - (b.distM ?? 0));
+  res.json(results.slice(0, 12));
 });
 
 router.get('/reverse-geocode', async (req, res) => {
