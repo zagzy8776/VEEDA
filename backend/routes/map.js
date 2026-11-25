@@ -227,16 +227,19 @@ async function fetchNearbyOverpass(lat, lng, radiusMeters) {
 async function fetchNearbyNominatim(lat, lng, radiusMeters) {
   const queries = [
     { q: 'hospital', type: 'hospital' },
+    { q: 'medical centre', type: 'clinic' },
     { q: 'clinic', type: 'clinic' },
     { q: 'pharmacy', type: 'pharmacy' },
-    { q: 'police', type: 'police' },
+    { q: 'chemist', type: 'pharmacy' },
+    { q: 'police station', type: 'police' },
     { q: 'atm', type: 'atm' },
     { q: 'bank', type: 'bank' },
-    { q: 'fuel', type: 'fuel' },
+    { q: 'petrol station', type: 'fuel' },
     { q: 'supermarket', type: 'supermarket' },
     { q: 'restaurant', type: 'restaurant' },
     { q: 'hotel', type: 'hotel' },
     { q: 'school', type: 'school' },
+    { q: 'church', type: 'place_of_worship' },
   ];
 
   // viewbox: left, top, right, bottom (lng/lat)
@@ -303,62 +306,72 @@ async function fetchNearbyNominatim(lat, lng, radiusMeters) {
 async function fetchNearbyGeoapify(lat, lng, radiusMeters) {
   const geoKey = process.env.GEOAPIFY_API_KEY;
   if (!geoKey) return null;
-  const categories = [
-    'healthcare.hospital',
-    'healthcare.clinic_or_praxis',
-    'healthcare.pharmacy',
-    'catering.restaurant',
-    'commercial.supermarket',
-    'service.financial.atm',
-    'service.vehicle.fuel',
-    'accommodation.hotel',
-    'education.school',
-    'service.police',
-  ].join(',');
-  const url =
-    `https://api.geoapify.com/v2/places?categories=${categories}` +
-    `&filter=circle:${lng},${lat},${radiusMeters}&bias=proximity:${lng},${lat}` +
-    `&limit=80&apiKey=${geoKey}`;
-  const r = await fetchWithTimeout(url, {}, 12000);
-  if (!r.ok) throw new Error(`Geoapify HTTP ${r.status}`);
-  const data = await r.json();
+
+  // Split into batches so healthcare is not crowded out by dozens of fuel stops
+  const batches = [
+    ['healthcare.hospital', 'healthcare.clinic_or_praxis', 'healthcare.pharmacy', 'healthcare', 'emergency.ambulance_station', 'service.police', 'service.fire_station'],
+    ['catering.restaurant', 'catering.fast_food', 'catering.cafe', 'commercial.supermarket', 'commercial.shopping_mall', 'commercial.convenience'],
+    ['service.financial.atm', 'service.financial.bank', 'accommodation.hotel', 'education.school', 'education.university', 'service.vehicle.fuel'],
+  ];
+
   const seen = new Set();
   const places = [];
-  for (const f of data.features || []) {
-    const [plng, plat] = f.geometry?.coordinates || [];
-    const props = f.properties || {};
-    const name = props.name || props.address_line1;
-    if (!name || !Number.isFinite(plat) || !Number.isFinite(plng)) continue;
-    const id = `geoapify-${props.place_id || props.osm_id || `${plat},${plng}`}`;
-    if (seen.has(id)) continue;
-    const distM = distBetween(lat, lng, plat, plng);
-    if (distM > radiusMeters) continue;
-    seen.add(id);
-    const cats = String(props.categories || props.category || '');
-    let amenity = 'place';
-    if (cats.includes('hospital')) amenity = 'hospital';
-    else if (cats.includes('pharmacy')) amenity = 'pharmacy';
-    else if (cats.includes('clinic')) amenity = 'clinic';
-    else if (cats.includes('restaurant') || cats.includes('catering')) amenity = 'restaurant';
-    else if (cats.includes('supermarket') || cats.includes('commercial')) amenity = 'supermarket';
-    else if (cats.includes('atm')) amenity = 'atm';
-    else if (cats.includes('fuel')) amenity = 'fuel';
-    else if (cats.includes('hotel') || cats.includes('accommodation')) amenity = 'hotel';
-    else if (cats.includes('school') || cats.includes('education')) amenity = 'school';
-    else if (cats.includes('police')) amenity = 'police';
-    places.push({
-      id,
-      name: String(name),
-      type: amenity,
-      category: getCategory(amenity),
-      phone: props.contact?.phone || null,
-      opening_hours: props.opening_hours || null,
-      website: props.website || null,
-      distM,
-      dist: fmtDist(distM),
-      lat: Number(plat),
-      lng: Number(plng),
-    });
+
+  for (const cats of batches) {
+    const url =
+      `https://api.geoapify.com/v2/places?categories=${cats.join(',')}` +
+      `&filter=circle:${lng},${lat},${radiusMeters}&bias=proximity:${lng},${lat}` +
+      `&limit=50&apiKey=${geoKey}`;
+    try {
+      const r = await fetchWithTimeout(url, {}, 12000);
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const f of data.features || []) {
+        const [plng, plat] = f.geometry?.coordinates || [];
+        const props = f.properties || {};
+        const name = props.name || props.address_line1;
+        if (!name || !Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+        // Prefer real POI names over pure street labels
+        if (/street|road|avenue|close|lane$/i.test(String(name)) && !/hospital|clinic|pharmacy|medical|hospital/i.test(String(name))) {
+          if (!props.name) continue;
+        }
+        const id = `geoapify-${props.place_id || props.osm_id || `${plat},${plng}`}`;
+        if (seen.has(id)) continue;
+        const distM = distBetween(lat, lng, plat, plng);
+        if (distM > radiusMeters) continue;
+        seen.add(id);
+        const catStr = String(props.categories || props.category || '');
+        let amenity = 'place';
+        if (catStr.includes('hospital')) amenity = 'hospital';
+        else if (catStr.includes('pharmacy')) amenity = 'pharmacy';
+        else if (catStr.includes('clinic') || catStr.includes('praxis')) amenity = 'clinic';
+        else if (catStr.includes('ambulance')) amenity = 'hospital';
+        else if (catStr.includes('restaurant') || catStr.includes('fast_food') || catStr.includes('cafe') || catStr.includes('catering')) amenity = 'restaurant';
+        else if (catStr.includes('supermarket') || catStr.includes('shopping_mall') || catStr.includes('convenience')) amenity = 'supermarket';
+        else if (catStr.includes('atm')) amenity = 'atm';
+        else if (catStr.includes('bank')) amenity = 'bank';
+        else if (catStr.includes('fuel')) amenity = 'fuel';
+        else if (catStr.includes('hotel') || catStr.includes('accommodation')) amenity = 'hotel';
+        else if (catStr.includes('school') || catStr.includes('university') || catStr.includes('education')) amenity = 'school';
+        else if (catStr.includes('police')) amenity = 'police';
+        else if (catStr.includes('fire')) amenity = 'fire_station';
+        places.push({
+          id,
+          name: String(name),
+          type: amenity,
+          category: getCategory(amenity),
+          phone: props.contact?.phone || null,
+          opening_hours: props.opening_hours || null,
+          website: props.website || null,
+          distM,
+          dist: fmtDist(distM),
+          lat: Number(plat),
+          lng: Number(plng),
+        });
+      }
+    } catch {
+      // try next batch
+    }
   }
   places.sort((a, b) => a.distM - b.distM);
   return places;
@@ -367,71 +380,112 @@ async function fetchNearbyGeoapify(lat, lng, radiusMeters) {
 router.get('/nearby', async (req, res) => {
   try {
     const { lat, lng } = assertCoords(req.query.lat, req.query.lng);
-    const radiusMeters = Math.min(Math.max(Number(req.query.radiusMeters || 5000), 500), 10000);
+    const radiusMeters = Math.min(Math.max(Number(req.query.radiusMeters || 10000), 500), 15000);
 
-    let places = [];
-    let source = 'none';
     const errors = [];
+    const buckets = [];
 
-    // 1) Geoapify if configured (fast, reliable on serverless)
-    try {
-      const geo = await fetchNearbyGeoapify(lat, lng, radiusMeters);
-      if (geo && geo.length) {
-        places = geo;
-        source = 'geoapify';
-      }
-    } catch (err) {
-      errors.push(`geoapify: ${err.message || err}`);
-    }
-
-    // 2) Overpass mirrors
-    if (!places.length) {
-      try {
-        places = await fetchNearbyOverpass(lat, lng, radiusMeters);
-        if (places.length) source = 'overpass';
-      } catch (err) {
+    // Run sources in parallel and MERGE results so one weak source cannot
+    // hide hospitals/pharmacies that another source still knows about.
+    const tasks = [
+      fetchNearbyGeoapify(lat, lng, radiusMeters).then(p => ({ source: 'geoapify', places: p || [] })).catch(err => {
+        errors.push(`geoapify: ${err.message || err}`);
+        return { source: 'geoapify', places: [] };
+      }),
+      fetchNearbyOverpass(lat, lng, radiusMeters).then(p => ({ source: 'overpass', places: p || [] })).catch(err => {
         errors.push(`overpass: ${err.message || err}`);
-      }
-    }
-
-    // 3) Nominatim fallback so the map still still shows hospitals / pharmacies
-    if (!places.length) {
-      try {
-        places = await fetchNearbyNominatim(lat, lng, radiusMeters);
-        if (places.length) source = 'nominatim';
-      } catch (err) {
+        return { source: 'overpass', places: [] };
+      }),
+      fetchNearbyNominatim(lat, lng, radiusMeters).then(p => ({ source: 'nominatim', places: p || [] })).catch(err => {
         errors.push(`nominatim: ${err.message || err}`);
+        return { source: 'nominatim', places: [] };
+      }),
+    ];
+    const results = await Promise.all(tasks);
+    for (const r of results) buckets.push(r);
+
+    // Merge + dedupe by rounded lat/lng + normalized name
+    const seen = new Set();
+    const merged = [];
+    const keyOf = (p) => {
+      const n = String(p.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      return `${n}|${p.lat.toFixed(4)}|${p.lng.toFixed(4)}`;
+    };
+    // Prefer richer / health-first ordering of sources when deduping
+    const order = { nominatim: 0, overpass: 1, geoapify: 2 };
+    buckets.sort((a, b) => (order[a.source] ?? 9) - (order[b.source] ?? 9));
+    for (const bucket of buckets) {
+      for (const p of bucket.places) {
+        if (!p?.name || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
+        // Drop obviously useless labels (street-only, single generic word)
+        const name = String(p.name).trim();
+        if (name.length < 3) continue;
+        if (/^(gas|fuel|pharmacy|hospital|clinic|hotel|school)$/i.test(name)) {
+          // keep but deprioritize later via sort; still include
+        }
+        const k = keyOf(p);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push({ ...p, source: bucket.source });
       }
     }
 
-    const hospitals = places.filter(p => p.type === 'hospital' || p.category === 'health').slice(0, 8);
+    // Category priority: health & emergency first, then everyday needs, fuel last
+    const catRank = (c) => ({
+      health: 0, emergency: 1, finance: 2, food: 3, shopping: 4,
+      education: 5, lodging: 6, transport: 7, other: 8,
+    }[c] ?? 9);
+
+    // Cap fuel/gas so 20 petrol stations do not drown the list
+    const fuel = merged.filter(p => p.type === 'fuel' || /fuel|petrol|gas station/i.test(p.type));
+    const nonFuel = merged.filter(p => !(p.type === 'fuel' || /fuel|petrol|gas station/i.test(p.type)));
+    const cappedFuel = fuel.sort((a, b) => a.distM - b.distM).slice(0, 8);
+    let places = [...nonFuel, ...cappedFuel];
+
+    places.sort((a, b) => {
+      const cr = catRank(a.category) - catRank(b.category);
+      if (cr !== 0) return cr;
+      return a.distM - b.distM;
+    });
+
+    // Hard-cap total but keep all health/emergency
+    const mustKeep = places.filter(p => p.category === 'health' || p.category === 'emergency');
+    const rest = places.filter(p => p.category !== 'health' && p.category !== 'emergency');
+    places = [...mustKeep, ...rest].slice(0, 120);
+    // Re-sort final list: health first by distance, then others by distance within category rank
+    places.sort((a, b) => {
+      const cr = catRank(a.category) - catRank(b.category);
+      if (cr !== 0) return cr;
+      return a.distM - b.distM;
+    });
+
+    const hospitals = places.filter(p =>
+      p.type === 'hospital' || p.type === 'clinic' || p.category === 'health'
+    ).slice(0, 30);
+
+    const sourcesUsed = buckets.filter(b => b.places.length).map(b => b.source);
+
     if (!places.length) {
       return res.status(503).json({
         places: [],
         hospitals: [],
         count: 0,
         radiusMeters,
-        source,
+        sources: sourcesUsed,
         error: errors.join('; ') || 'Nearby places unavailable',
       });
     }
-    res.json({ places, hospitals, count: places.length, radiusMeters, source });
+    res.json({
+      places,
+      hospitals,
+      count: places.length,
+      radiusMeters,
+      sources: sourcesUsed,
+    });
   } catch (err) {
     res.status(503).json({ places: [], hospitals: [], count: 0, error: err.message || 'Nearby places unavailable' });
   }
 });
-
-function getCategory(amenity) {
-  if (['hospital', 'clinic', 'doctors', 'dentist', 'pharmacy', 'veterinary'].includes(amenity)) return 'health';
-  if (['restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'food_court'].includes(amenity)) return 'food';
-  if (['supermarket', 'convenience', 'grocery', 'mall', 'department_store', 'bakery', 'butcher', 'greengrocer'].includes(amenity)) return 'shopping';
-  if (['school', 'university', 'college'].includes(amenity)) return 'education';
-  if (['bank', 'atm'].includes(amenity)) return 'finance';
-  if (['hotel', 'hostel', 'motel', 'guest_house'].includes(amenity)) return 'lodging';
-  if (['fuel', 'parking'].includes(amenity)) return 'transport';
-  if (['police', 'fire_station'].includes(amenity)) return 'emergency';
-  return 'other';
-}
 
 router.get('/search', async (req, res) => {
   const { q, lat, lng } = req.query;

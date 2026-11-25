@@ -496,7 +496,15 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
   function toggleFav(id: string) { setFavorites(prev => { const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]; localStorage.setItem('veda_fav_places', JSON.stringify(next)); return next; }); }
 
   const categories = ['all', ...Array.from(new Set(places.map(p => p.category)))];
-  const filtered = places.filter(p => (filter === 'all' || p.category === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase())));
+  const filtered = places
+    .filter(p => (filter === 'all' || p.category === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase())))
+    .slice()
+    .sort((a, b) => {
+      if (filter !== 'all') return a.distM - b.distM;
+      const rank = (c: string) => ({ health: 0, emergency: 1, finance: 2, food: 3, shopping: 4, education: 5, lodging: 6, transport: 7, other: 8 }[c] ?? 9);
+      const r = rank(a.category) - rank(b.category);
+      return r !== 0 ? r : a.distM - b.distM;
+    });
   const nearestHospital = places.filter(p => p.type === 'hospital').sort((a, b) => a.distM - b.distM)[0] || null;
 
   // Saved places, the nearest of each everyday need and the time-aware quick
@@ -615,16 +623,25 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
     settle(sheetOpenRef.current);
   }
 
-  // Places grouped for the suggestion carousels: biggest group first, so the
-  // sheet leads with whatever this area actually has.
+  // Places grouped for the suggestion carousels. Health / emergency always
+  // lead — never buried under fuel stations — and every category with results
+  // is shown (not only the biggest four).
+  const catPriority: Record<string, number> = {
+    health: 0, emergency: 1, finance: 2, food: 3, shopping: 4,
+    education: 5, lodging: 6, transport: 7, other: 8,
+  };
   const grouped = places.reduce<Record<string, Place[]>>((acc, place) => {
     (acc[place.category] ||= []).push(place);
     return acc;
   }, {});
+  for (const list of Object.values(grouped)) list.sort((a, b) => a.distM - b.distM);
   const carousels = Object.entries(grouped)
-    .filter(([category, list]) => category !== 'other' && list.length >= 2)
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 4);
+    .filter(([, list]) => list.length >= 1)
+    .sort((a, b) => {
+      const pr = (catPriority[a[0]] ?? 9) - (catPriority[b[0]] ?? 9);
+      if (pr !== 0) return pr;
+      return b[1].length - a[1].length;
+    });
 
   function runSuggestion(term: string) {
     setSearch(term);
@@ -830,7 +847,7 @@ export function MapPage({ location, onOpenContacts }: { location: Location; onOp
                 <span style={{ fontSize: 11, color: C.muted }}>{list.length}</span>
               </div>
               <motion.div variants={listContainer} initial="initial" animate="animate" style={{ display: 'flex', gap: 8, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 2 }}>
-                {list.slice(0, 8).map(place => { const fav = favorites.includes(place.id); return (
+                {list.map(place => { const fav = favorites.includes(place.id); return (
                   <motion.div key={place.id} variants={listItem} whileTap={{ scale: 0.97 }} onClick={() => focusPlace(place)} style={{ flexShrink: 0, width: 150, padding: 10, borderRadius: 14, background: C.card, border: `1px solid ${selected === place.id ? cat.color + '35' : C.border}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                       <span style={{ width: 26, height: 26, borderRadius: 9, background: cat.bg, color: cat.color, display: 'grid', placeItems: 'center' }}><Icon size={13} /></span>
