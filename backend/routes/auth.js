@@ -75,8 +75,11 @@ function clearRefreshCookie(res) {
 function requireCookieCsrf({ allowedOrigins }) {
   return (req, res, next) => {
     const origin = req.get('origin');
-    const hasAllowedOrigin = typeof origin === 'string' && allowedOrigins.includes(origin);
     const hasRequestedWith = req.get('x-requested-with') === 'XMLHttpRequest';
+    // Same-origin browser requests often omit Origin. Allow those when
+    // X-Requested-With is present (our client always sends it).
+    const sameOriginMissing = origin == null || origin === '';
+    const hasAllowedOrigin = sameOriginMissing || (typeof origin === 'string' && allowedOrigins.includes(origin));
     if (!hasAllowedOrigin || !hasRequestedWith) {
       return res.status(403).json({ error: 'Invalid authentication request origin' });
     }

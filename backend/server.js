@@ -103,6 +103,8 @@ function optionalAuth(req, res, next) {
 
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' && req.path === '/health') return next();
+  // Map endpoints are public so the map page works without a login.
+  if (req.path === '/map' || req.path.startsWith('/map/')) return next();
   if (req.path === '/ai-chat' || req.path.startsWith('/ai-chat/')) return next();
   if (req.path === '/conversations' || req.path.startsWith('/conversations/')) return next();
   return requireAuth(req, res, next);
