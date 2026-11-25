@@ -190,10 +190,13 @@ export function useBreathRate(onResult: (rate: number) => void) {
   const [state, setState] = useState<BreathState>('idle');
   const [countdown, setCountdown] = useState(30);
   const [progress, setProgress] = useState(0);
+  const [waveform, setWaveform] = useState<number[]>([]);
   const [error, setError] = useState('');
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  const waveformRef = useRef<number[]>([]);
 
   const stop = useCallback(() => {
     if (timerRef.current) window.clearInterval(timerRef.current);
@@ -203,6 +206,16 @@ export function useBreathRate(onResult: (rate: number) => void) {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
+
+  const reset = useCallback(() => {
+    stop();
+    setState('idle');
+    setCountdown(30);
+    setProgress(0);
+    setError('');
+    setWaveform([]);
+    waveformRef.current = [];
+  }, [stop]);
 
   const start = useCallback(async () => {
     setState('requesting'); setError(''); setCountdown(30); setProgress(0);
@@ -229,7 +242,12 @@ export function useBreathRate(onResult: (rate: number) => void) {
           const v = (data[i] - 128) / 128;
           sum += v * v;
         }
-        energies.push(Math.sqrt(sum / data.length));
+        const energy = Math.sqrt(sum / data.length);
+        energies.push(energy);
+        waveformRef.current.push(energy);
+        if (waveformRef.current.length % 3 === 0) {
+          setWaveform(waveformRef.current.slice(-60));
+        }
         if (elapsed >= 30) {
           stop();
           const win = Math.max(4, Math.floor(energies.length / 40));
@@ -255,7 +273,7 @@ export function useBreathRate(onResult: (rate: number) => void) {
     }
   }, [onResult, stop]);
 
-  return { state, start, stop, countdown, progress, error };
+  return { state, start, stop, reset, countdown, progress, waveform, error };
 }
 
 export type StepStatus = 'idle' | 'requesting' | 'listening' | 'denied' | 'unsupported' | 'permission_required';

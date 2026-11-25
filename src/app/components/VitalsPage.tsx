@@ -33,7 +33,7 @@ function Waveform({ data, color }: { data: number[]; color: string }) {
     const c = canvasRef.current; if (!c) return;
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#080f1a'; ctx.fillRect(0, 0, c.width, c.height);
-    if (data.length < 2) return;
+    if (!data || data.length < 2) return;
     const min = Math.min(...data), max = Math.max(...data), range = max - min || 1;
     ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
     data.forEach((v, i) => {
