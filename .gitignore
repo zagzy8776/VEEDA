@@ -7,6 +7,17 @@ VEEDA
 .env.production
 backend/.env
 
+# Android build artifacts
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+android/.cxx
+android/key.properties
+
 # Test-run capture files (node --test stdout/stderr redirects)
 bk*.txt
 bt*.txt
+
+# Local dev scratch: on-device screenshots, server logs, CDP helper
+.logs/

@@ -106,8 +106,7 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}
-      style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
+    <div style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
       <div style={{ padding: '0 20px 100px' }}>
 
         <div style={{ paddingTop: 24, paddingBottom: 4 }}>
@@ -210,6 +209,6 @@ export function HomePage({ app, onOpenChat }: { app: VedaApp; onOpenChat: () => 
           Chat with VEDA
         </motion.button>
       </div>
-    </motion.div>
+    </div>
   );
 }

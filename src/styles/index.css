@@ -4,3 +4,104 @@
 
 html, body { height: 100%; margin: 0; }
 #root { height: 100%; }
+
+/* ── MapPage Animations (Snapchat-style polish) ─────────────────────────── */
+
+/* Chip carousel: smooth horizontal scroll with momentum on iOS */
+.veda-chip-carousel {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Individual chip: subtle hover lift and tap feedback */
+.veda-chip {
+  transform-origin: center center;
+}
+.veda-chip:active {
+  transform: scale(0.95);
+}
+
+/* Floating control buttons: enhanced hover state */
+.veda-floating-control {
+  transform-origin: center center;
+}
+
+/* Bottom sheet handle: visual feedback on drag */
+.veda-sheet-handle:active {
+  cursor: grabbing;
+}
+
+/* Sonar pulse animation for user location marker */
+@keyframes vedaSonarPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* Marker pulse animation for place pins */
+@keyframes vedaMarkerBreathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+/* Smooth fade-in for list items */
+@keyframes vedaFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Loading spinner */
+@keyframes vedaSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Search bar focus glow */
+.veda-search-input:focus {
+  animation: vedaSearchGlow 0.3s ease-out;
+}
+
+@keyframes vedaSearchGlow {
+  0% { box-shadow: 0 0 0 0 rgba(45, 212, 164, 0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(45, 212, 164, 0); }
+}
+
+/* Card hover lift effect */
+.veda-place-card {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.6, 1), box-shadow 0.2s ease;
+}
+.veda-place-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Essentials tile animation */
+.veda-essentials-tile {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+.veda-essentials-tile:hover {
+  transform: translateY(-3px) scale(1.02);
+}
+
+/* Explore tile pulse on hover */
+.veda-explore-tile {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+.veda-explore-tile:hover {
+  transform: scale(1.05);
+}
+

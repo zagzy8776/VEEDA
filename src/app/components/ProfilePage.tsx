@@ -86,8 +86,7 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}
-      style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
+    <div style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
       <div style={{ padding: '0 20px 100px' }}>
 
         <div style={{ paddingTop: 22, paddingBottom: 20 }}>
@@ -363,6 +362,6 @@ export function ProfilePage({ profile, saveProfile, userEmail, onLogout, onOpenS
           <br /><span style={{ color: C.teal, marginTop: 6, display: 'inline-block' }}>v1.0.0 - Clinical Build</span>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

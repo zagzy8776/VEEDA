@@ -1,0 +1,5 @@
+#!/bin/sh
+# Minimal Gradle wrapper stub. Replace with the full wrapper from
+# https://gradle.org/ or run `gradle wrapper` once Gradle is installed.
+echo "Gradle wrapper is not fully installed. Run 'gradle wrapper' or install Gradle 8.7+."
+exit 1

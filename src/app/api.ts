@@ -1,5 +1,5 @@
 import { readingsStorageKey } from './bpGlucose';
-import { hasConsent } from './consent';
+import { hasConsent, syncConsent, type ConsentFeature } from './consent';
 import type { VedaRole } from './types';
 
 export type AuthUser = {
@@ -294,6 +294,41 @@ export function hasPendingLocalReadings(): boolean {
 
 export async function syncConsentedReadings(_userId: string, _consented: boolean): Promise<boolean> {
   return false;
+}
+
+/**
+ * Mirror a local consent decision to the server-of-record (POST /api/consent).
+ * localStorage is only a cache; this is the durable, auditable record that
+ * survives a cleared browser. Callers fire it best-effort (`void ...`), so a
+ * failure is non-fatal and reported as `false` rather than thrown. `syncConsent`
+ * maps the client feature to the coarser server feature set (see consent.ts).
+ */
+export async function syncConsentRecord(
+  feature: ConsentFeature,
+  version: string,
+  granted: boolean,
+): Promise<boolean> {
+  if (!accessToken) return false;
+  const result = await syncConsent(fetch, BASE, accessToken, feature, granted, version);
+  return result.ok;
+}
+
+/**
+ * Delete every reading already synced to this account (DELETE /api/readings).
+ * This is a separate, explicit action offered after consent is withdrawn:
+ * withdrawing consent stops future syncing but does not erase what is already
+ * stored, so deleting it is a deliberate second step. Mirrors `deleteAccount`.
+ */
+export async function deleteSyncedReadings(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { response, data } = await request<{ error?: string }>('/api/readings', {
+      method: 'DELETE',
+    });
+    if (response.ok) return { ok: true };
+    return { ok: false, error: data?.error || 'Could not delete synced readings.' };
+  } catch {
+    return { ok: false, error: 'Could not reach the server.' };
+  }
 }
 
 export async function listDependents(): Promise<ServerDependent[]> {

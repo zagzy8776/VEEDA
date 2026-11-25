@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, Component, type ReactNode } from 'react';
-import { AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
 import { BottomNav, type Route } from './components/BottomNav';
 import { HomePage } from './components/HomePage';
@@ -14,6 +14,7 @@ import { downloadContactsCsv } from './emergencyContacts';
 import { downloadCsvFile, downloadJsonFile } from './download';
 import { useVedaApp, isFirstLaunch } from './useVedaApp';
 import type { SummarySection } from './healthSummary';
+import { pageVariantsFor } from './motion';
 
 // Build the selectable summary sections from the user's own recorded data.
 // Source labels reflect how each reading was captured; nothing is inferred.
@@ -268,11 +269,11 @@ function VedaShell({ user, authenticated, onLogout, onExportAccount }: { user: A
             activeSubjectId={activeSubjectId} onSelectSubject={chooseSubject} />
         <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ErrorBoundary><Suspense fallback={<LoadingPane />}><AnimatePresence mode="wait" initial={false}>
-            {route === 'home' && <div key="home" style={{ position: 'absolute', inset: 0 }}><HomePage app={app} onOpenChat={() => setChatOpen(true)} /></div>}
-            {route === 'vitals' && <div key="vitals" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></div>}
-            {route === 'map' && <div key="map" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></div>}
-            {route === 'history' && <div key="history" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></div>}
-            {route === 'profile' && <div key="profile" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenMedicine={() => setMedicineOpen(true)} onOpenFood={() => setFoodOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onOpenPhoneChecks={() => setPhoneChecksOpen(true)} onOpenConsult={() => setConsultOpen(true)} onOpenCare={() => setCareOpen(true)} onOpenAccess={() => setAccessOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></div>}
+            {route === 'home' && <motion.div key="home" variants={pageVariantsFor(route)} initial="initial" animate="animate" exit="exit" style={{ position: 'absolute', inset: 0 }}><HomePage app={app} onOpenChat={() => setChatOpen(true)} /></motion.div>}
+            {route === 'vitals' && <motion.div key="vitals" variants={pageVariantsFor(route)} initial="initial" animate="animate" exit="exit" style={{ position: 'absolute', inset: 0 }}><VitalsPage app={app} /></motion.div>}
+            {route === 'map' && <motion.div key="map" variants={pageVariantsFor(route)} initial="initial" animate="animate" exit="exit" style={{ position: 'absolute', inset: 0 }}><MapPage location={app.location} onOpenContacts={() => setContactsOpen(true)} /></motion.div>}
+            {route === 'history' && <motion.div key="history" variants={pageVariantsFor(route)} initial="initial" animate="animate" exit="exit" style={{ position: 'absolute', inset: 0 }}><HistoryPage history={app.history} onRefresh={app.fetchHistory} /></motion.div>}
+            {route === 'profile' && <motion.div key="profile" variants={pageVariantsFor(route)} initial="initial" animate="animate" exit="exit" style={{ position: 'absolute', inset: 0 }}><ProfilePage profile={app.profile!} saveProfile={app.saveProfile} userEmail={user?.email} onLogout={authenticated ? onLogout : undefined} onOpenSummary={() => setSummaryOpen(true)} onOpenMedicine={() => setMedicineOpen(true)} onOpenFood={() => setFoodOpen(true)} onOpenReminders={() => setRemindersOpen(true)} onOpenBpGlucose={() => setBpGlucoseOpen(true)} onOpenContacts={() => setContactsOpen(true)} onOpenAlerts={() => setAlertsOpen(true)} onOpenDetection={() => setDetectionOpen(true)} onOpenConditions={() => setConditionsOpen(true)} onOpenPrevention={() => setPreventionOpen(true)} onOpenPhoneChecks={() => setPhoneChecksOpen(true)} onOpenConsult={() => setConsultOpen(true)} onOpenCare={() => setCareOpen(true)} onOpenAccess={() => setAccessOpen(true)} onExportData={onExportAccount} onDeleteAccount={deleteAccount} /></motion.div>}
           </AnimatePresence></Suspense></ErrorBoundary>
         </main>
         <BottomNav route={route} onNavigate={setRoute} showClinical={false} />

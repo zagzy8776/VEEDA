@@ -1,5 +1,7 @@
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Heart, Wind, Droplet, Moon, Footprints, Thermometer, Camera, Mic, AlertTriangle, X, CheckCircle } from 'lucide-react';
+import { BREATHE, HEARTBEAT, INVITE, SPRING_SOFT, listContainer, listItem, sheetVariants } from '../motion';
+import { AnimatedNumber } from './AnimatedNumber';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { VedaApp } from '../useVedaApp';
@@ -72,7 +74,7 @@ function HRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 800, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+      <motion.div variants={sheetVariants} initial="initial" animate="animate" exit="exit"
         style={{ width: '100%', maxWidth: 390, background: '#0a0f1c', borderRadius: '24px 24px 0 0', padding: 24, paddingBottom: 36, border: '0.5px solid rgba(255,255,255,0.1)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -166,7 +168,7 @@ function BRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 800, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+      <motion.div variants={sheetVariants} initial="initial" animate="animate" exit="exit"
         style={{ width: '100%', maxWidth: 390, background: '#0a0f1c', borderRadius: '24px 24px 0 0', padding: 24, paddingBottom: 36, border: '0.5px solid rgba(255,255,255,0.1)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -222,6 +224,12 @@ function BRModal({ onClose, onResult }: { onClose: () => void; onResult: (bpm: n
 export function VitalsPage({ app }: { app: VedaApp }) {
   const { vitals, hydrationMl, logWater, setVital, ingestRawBiometric, saveBiometric, history, sleepHours, setSleepHours, steps, stepStatus, enableStepTracking, profile } = app;
   const canWriteVitals = app.canCreateVitals;
+  // The pulsing icons are decoration: only run them when there is a real reading
+  // to signal, and never when the OS asks for reduced motion.
+  const reduced = useReducedMotion();
+  const hrLive = Boolean(vitals.heartRate) && !reduced;
+  const brLive = Boolean(vitals.respiratory) && !reduced;
+  const hrInvite = !vitals.heartRate && !reduced;
   const [tempInput, setTempInput] = useState('');
   const [bpInput, setBpInput] = useState('');
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>(profile?.tempUnit ?? 'C');
@@ -299,21 +307,22 @@ export function VitalsPage({ app }: { app: VedaApp }) {
         {showBR && <BRModal onClose={() => setShowBR(false)} onResult={handleBRResult} />}
       </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}
-        style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
-        <div style={{ padding: '0 20px 100px' }}>
+      <div style={{ overflowY: 'auto', height: '100%', scrollbarWidth: 'none' }}>
+        <motion.div variants={listContainer} initial="initial" animate="animate" style={{ padding: '0 20px 100px' }}>
 
-          <div style={{ paddingTop: 22, paddingBottom: 4 }}>
+          <motion.div variants={listItem} style={{ paddingTop: 22, paddingBottom: 4 }}>
             <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, lineHeight: 1 }}>Vitals</h2>
             <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Check yourself with your phone</p>
-          </div>
+          </motion.div>
 
           {/* Measure Hub */}
-          <div style={{ margin: '16px 0', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '14px 16px' }}>
+          <motion.div variants={listItem} style={{ margin: '16px 0', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '14px 16px' }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 12 }}>Measure now</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
               <button onClick={() => canWriteVitals && setShowHR(true)} disabled={!canWriteVitals} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '14px 8px', background: vitals.heartRate ? 'rgba(226,75,74,0.1)' : '#0A1220', border: `0.5px solid ${vitals.heartRate ? C.red : C.border}`, borderRadius: 14, color: C.text, cursor: canWriteVitals ? 'pointer' : 'default', opacity: canWriteVitals ? 1 : 0.55 }}>
-                <Camera size={22} style={{ color: C.red }} strokeWidth={1.8} />
+                <motion.span animate={hrInvite ? INVITE : undefined} style={{ display: 'inline-block' }}>
+                  <Camera size={22} style={{ color: C.red }} strokeWidth={1.8} />
+                </motion.span>
                 <span style={{ fontSize: 11, fontWeight: 600 }}>Heart Rate</span>
                 <span style={{ fontSize: 10, color: vitals.heartRate ? C.red : C.muted }}>{vitals.heartRate ? `${vitals.heartRate} bpm` : '30s camera'}</span>
               </button>
@@ -331,15 +340,19 @@ export function VitalsPage({ app }: { app: VedaApp }) {
               </button>
             </div>
             <Tip msg="Heart rate is estimated from your fingertip on the rear camera — not a clinical ECG. If the signal is unclear, VEEDA shows no number rather than a guess. Breathing uses the mic; steps use motion sensors." />
-          </div>
+          </motion.div>
 
           {/* Bio cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+          <motion.div variants={listItem} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
 
             <div style={{ background: C.card, border: `1px solid ${vitals.heartRate ? C.red + '40' : C.border}`, borderRadius: 18, padding: '16px 14px', cursor: canWriteVitals ? 'pointer' : 'default' }} onClick={() => canWriteVitals && setShowHR(true)}>
-              <div style={{ color: C.red, marginBottom: 8 }}><Heart size={18} strokeWidth={2} /></div>
+              <div style={{ color: C.red, marginBottom: 8 }}>
+                <motion.span animate={hrLive ? HEARTBEAT : undefined} style={{ display: 'inline-block' }}>
+                  <Heart size={18} strokeWidth={2} />
+                </motion.span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 3 }}>
-                <span style={{ fontSize: 26, fontWeight: 700, color: vitals.heartRate ? C.text : C.muted, fontFamily: "'Geist Mono',monospace" }}>{vitals.heartRate ?? '--'}</span>
+                <AnimatedNumber boot value={vitals.heartRate ?? Number.NaN} style={{ fontSize: 26, fontWeight: 700, color: vitals.heartRate ? C.text : C.muted, fontFamily: "'Geist Mono',monospace" }} />
                 <span style={{ fontSize: 10, color: C.muted }}>bpm</span>
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.muted }}>Heart Rate</div>
@@ -347,9 +360,13 @@ export function VitalsPage({ app }: { app: VedaApp }) {
             </div>
 
             <div style={{ background: C.card, border: `1px solid ${vitals.respiratory ? C.blue + '40' : C.border}`, borderRadius: 18, padding: '16px 14px', cursor: canWriteVitals ? 'pointer' : 'default' }} onClick={() => canWriteVitals && setShowBR(true)}>
-              <div style={{ color: C.blue, marginBottom: 8 }}><Wind size={18} strokeWidth={2} /></div>
+              <div style={{ color: C.blue, marginBottom: 8 }}>
+                <motion.span animate={brLive ? BREATHE : undefined} style={{ display: 'inline-block' }}>
+                  <Wind size={18} strokeWidth={2} />
+                </motion.span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 3 }}>
-                <span style={{ fontSize: 26, fontWeight: 700, color: vitals.respiratory ? C.text : C.muted, fontFamily: "'Geist Mono',monospace" }}>{vitals.respiratory ?? '--'}</span>
+                <AnimatedNumber boot value={vitals.respiratory ?? Number.NaN} style={{ fontSize: 26, fontWeight: 700, color: vitals.respiratory ? C.text : C.muted, fontFamily: "'Geist Mono',monospace" }} />
                 <span style={{ fontSize: 10, color: C.muted }}>br/min</span>
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.muted }}>Breath Rate</div>
@@ -362,19 +379,19 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 <div>
                   <div style={{ color: C.blue, marginBottom: 6 }}><Droplet size={18} strokeWidth={2} /></div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontSize: 26, fontWeight: 700, color: C.text, fontFamily: "'Geist Mono',monospace" }}>{(hydrationMl / 1000).toFixed(2)}</span>
+                    <AnimatedNumber boot decimals={2} value={hydrationMl / 1000} style={{ fontSize: 26, fontWeight: 700, color: C.text, fontFamily: "'Geist Mono',monospace" }} />
                     <span style={{ fontSize: 10, color: C.muted }}>L</span>
                   </div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginTop: 2 }}>Hydration</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: C.blue, fontFamily: "'Geist Mono',monospace" }}>{hydPct}%</div>
+                  <AnimatedNumber boot suffix="%" value={hydPct} style={{ fontSize: 20, fontWeight: 700, color: C.blue, fontFamily: "'Geist Mono',monospace" }} />
                   <div style={{ fontSize: 10, color: C.muted }}>of {(wt / 1000).toFixed(1)}L target</div>
                   <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{Math.max(0, wt - hydrationMl)}ml left</div>
                 </div>
               </div>
               <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', marginBottom: 12 }}>
-                <motion.div initial={{ width: 0 }} animate={{ width: `${hydPct}%` }} transition={{ duration: 0.8 }} style={{ height: '100%', borderRadius: 2, background: hydPct >= 80 ? C.teal : hydPct >= 50 ? C.blue : C.amber }} />
+                <motion.div initial={{ width: 0 }} animate={{ width: `${hydPct}%` }} transition={SPRING_SOFT} style={{ height: '100%', borderRadius: 2, background: hydPct >= 80 ? C.teal : hydPct >= 50 ? C.blue : C.amber }} />
               </div>
               {canWriteVitals && <div style={{ display: 'flex', gap: 8 }}>
                 {[150, 250, 500].map(ml => (
@@ -403,12 +420,12 @@ export function VitalsPage({ app }: { app: VedaApp }) {
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '16px 14px' }}>
               <div style={{ color: C.teal, marginBottom: 8 }}><Footprints size={18} strokeWidth={2} /></div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 3 }}>
-                <span style={{ fontSize: 26, fontWeight: 700, color: C.text, fontFamily: "'Geist Mono',monospace" }}>{steps.toLocaleString()}</span>
+                <AnimatedNumber boot group value={steps} style={{ fontSize: 26, fontWeight: 700, color: C.text, fontFamily: "'Geist Mono',monospace" }} />
                 <span style={{ fontSize: 10, color: C.muted }}>steps</span>
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 8 }}>Steps Today</div>
               <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 2, background: C.teal, width: `${Math.min(100, (steps / sg) * 100)}%`, transition: 'width 0.3s' }} />
+                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (steps / sg) * 100)}%` }} transition={SPRING_SOFT} style={{ height: '100%', borderRadius: 2, background: C.teal }} />
               </div>
               <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{sg - steps > 0 ? `${(sg - steps).toLocaleString()} steps to goal` : '🎉 Goal reached!'}</div>
               {stepStatus !== 'listening' && (
@@ -436,10 +453,10 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 <button onClick={saveTemp} style={{ padding: '8px 14px', background: C.teal, color: '#04342C', borderRadius: 10, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save</button>
               </div>}
             </div>
-          </div>
+          </motion.div>
 
           {/* Clinical NEWS2 inputs */}
-          <div style={{ marginBottom: 16 }}>
+          <motion.div variants={listItem} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>Clinical NEWS2 Inputs</div>
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
@@ -506,10 +523,10 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* 7-Day Trend */}
-          <div style={{ marginBottom: 8 }}>
+          <motion.div variants={listItem} style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, marginBottom: 10 }}>7-Day Trend</div>
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '16px 8px 8px' }}>
               {trendData.some(d => d.hr !== null || d.br !== null) ? (
@@ -529,10 +546,10 @@ export function VitalsPage({ app }: { app: VedaApp }) {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </>
   );
 }

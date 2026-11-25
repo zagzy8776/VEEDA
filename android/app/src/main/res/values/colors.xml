@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="veeda_primary">#2196F3</color>
+    <color name="veeda_primary_variant">#1976D2</color>
+    <color name="veeda_secondary">#03DAC5</color>
+    <color name="veeda_background">#FFFFFF</color>
+    <color name="veeda_surface">#FFFFFF</color>
+    <color name="veeda_error">#B00020</color>
+    <color name="veeda_on_primary">#FFFFFF</color>
+    <color name="veeda_on_secondary">#000000</color>
+    <color name="veeda_on_background">#000000</color>
+    <color name="veeda_on_surface">#000000</color>
+</resources>

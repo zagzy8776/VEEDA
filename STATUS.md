@@ -155,6 +155,21 @@ output is DISABLED ("not yet validated") because no validated model is registere
 | Data-protection checklist doc | working | `docs/DATA_PROTECTION_CHECKLIST.md` (legal lines are placeholders). |
 | Medical-device-compliance checklist doc | working | `docs/MEDICAL_DEVICE_COMPLIANCE_CHECKLIST.md` (legal lines are placeholders). |
 
+## Android native wrapper (Capacitor)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Capacitor config (`capacitor.config.json`) | working | Points at `dist/`; `webDir` matches the Vite build output. |
+| Android project shell (`android/`) | framework only | Gradle module, manifest, resources, and wrapper scripts are in place; needs `npx cap sync` once the Capacitor CLI is available. |
+| Auth & secure storage | working | `SecureStorage` stores the JWT in encrypted prefs; `clearAll()` wipes every per-user key on logout. |
+| Camera rPPG (heart rate) | framework only | `camera/RppgAnalyzer.kt` + `HeartRateCameraController.kt` capture YUV red/green/green intensity with torch; the shared validation harness must approve before any value is shown. |
+| Mic breathing / distress watch | framework only | `AudioDistressMonitor.kt` needs mic consent + operator threshold; several consecutive positives required; detection only starts the check-in ladder. |
+| Guardian Mode foreground service | working | `GuardianModeService` + `NotificationHelper` show a persistent notification; starts only after per-feature consent. |
+| Fall detection | framework only | `FallDetector.kt` needs operator thresholds; never auto-dials or auto-SOS. |
+| Offline queue sync (WorkManager) | working | `OfflineQueue` + `OfflineSyncWorker` + `WorkManagerScheduler` flush queued measurements when the network returns. |
+| BLE intake (BP/thermometer/glucose) | framework only | `BleHealthDeviceManager.kt` lists the standard GATT UUIDs; needs the device protocol + reviewed pack. |
+| Backend API client | working | `ApiClient.kt` (Retrofit) targets `/api/auth/*`, `/api/map/nearby`, `/api/chat/message`, `/api/review-queue` with `Authorization: Bearer <jwt>`. |
+
 ## Finish
 
 Both suites and a build were run at the end of every phase; the final run is recorded

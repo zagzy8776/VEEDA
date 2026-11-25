@@ -1,0 +1,14 @@
+{
+  "appId": "com.veda.mobile",
+  "appName": "VEEDA",
+  "webDir": "dist",
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#ffffff",
+      "showSpinner": false
+    }
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

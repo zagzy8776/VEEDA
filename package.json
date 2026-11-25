@@ -11,9 +11,15 @@
     "test:backend": "node --test backend/tests/*.test.js",
     "test:auth-client": "node --test --experimental-strip-types tests/auth-client.test.ts",
     "test:rppg-export": "node --test --experimental-strip-types tests/rppg-research-export.test.ts",
-    "test:client": "node --test --experimental-strip-types tests/*.test.ts"
+    "test:client": "node --test --experimental-strip-types tests/*.test.ts",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:run": "npx cap run android"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mui/icons-material": "7.3.5",
